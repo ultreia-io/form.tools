@@ -11,11 +11,11 @@ release](https://img.shields.io/github/v/release/ultreia-io/form.tools?display_n
 Neutral, model-driven workbook operations using form definitions and
 matching workbook templates.
 
-**Initial package skeleton. Workbook operations are not implemented yet.**
+**Split structurally validated workbooks using model-defined keys and an empty template.**
 
 ## Installation
 
-Once the first release is published, install it directly from GitHub:
+Install the latest release directly from GitHub:
 
 ``` r
 install.packages("pak") # Once
@@ -24,7 +24,7 @@ pak::pak("ultreia-io/form.tools@*release")
 
 `pak` downloads the package and installs its dependencies automatically.
 
-Once the skeleton is pushed to `develop`, install the development version:
+Install the development version:
 
 ``` r
 pak::pak("ultreia-io/form.tools@develop")
@@ -34,30 +34,59 @@ pak::pak("ultreia-io/form.tools@develop")
 
 ``` r
 library(form.tools)
+examples <- system.file("examples", package = "form.model")
+model <- form.model::load_form_model("survey", examples)
+
+outputs <- split_form_workbook(
+  path = file.path(examples, "survey.xlsx"),
+  model = model,
+  root_sheet = "Observations",
+  template = file.path(examples, "survey-empty.xlsx"),
+  directory = "survey-by-observation",
+  shared_sheets = "Equipment"
+)
+outputs
 ```
 
-The package currently provides its skeleton and documentation only.
-No workbook functions are exported yet.
+The bundled example produces three workbooks, each containing one observation, its related records, and shared data.
+For your own workbooks, the source must already pass structural validation.
+The template must match the model version and use the same Excel date system as the source.
+
+The output directory must not exist. Each root record produces one workbook, in source order.
+The returned manifest includes the output path, source row, and root key components.
 
 ## Contract
-
-The planned workbook operations will:
 
 - Consume neutral form definitions through the public `form.model` API.
 - Split a workbook by a caller-selected root sheet and its primary key.
 - Follow model-defined parent keys to select related records.
 - Populate a matching empty template for each output workbook.
+- Reject missing or duplicate primary keys and missing parent keys before writing outputs.
 - Keep domain definitions and templates in consuming packages.
 
 ## Workbook defaults and conventions
 
-The caller supplies the model, source workbook, and matching empty template.
+Fixed-cell fields are copied into every output. Descendant tables retain their original row order.
+Tables outside the selected hierarchy must be explicitly listed in `shared_sheets` to copy them in full.
 
-Source workbooks must pass structural validation and have no primary-key
-or parent-key findings before splitting.
+Unmodeled template sheets are retained unchanged. Unmodeled source sheets are not copied.
+Output filenames combine the original basename and root primary-key values in model order:
+`<original basename>_<key components>.xlsx`. Components are separated by `_`.
+Invalid filename characters become `_`; case-insensitive collisions and names exceeding 255 bytes are rejected.
 
-Shared-sheet copying, output naming, and preservation of Excel features
-remain design decisions. No defaults are implemented yet.
+Template table data regions must be empty, including formulas.
+Additional rows inherit the first template data row's styles and height.
+Standard dropdown and conditional-formatting ranges grow with the output data.
+
+Source formulas are copied as cached values. Excel errors and uncached formulas in modeled fields are rejected.
+Template formulas outside modeled fields are retained, with recalculation requested when Excel opens the output.
+R does not recalculate formulas.
+
+Excel tables and merged cells in template data regions are not supported in this first implementation.
+Fixed print areas and extended Excel validation ranges are preserved without expansion.
+
+Outputs are prepared in a temporary sibling directory and published together after all workbooks are written.
+Source and template files are never modified; existing outputs are never overwritten.
 
 ## Guides
 
@@ -69,7 +98,7 @@ remain design decisions. No defaults are implemented yet.
 
 ## Boundaries
 
-This package is intended for neutral workbook operations.
+This package performs neutral workbook operations.
 
 Form definitions belong in `form.model` and its consuming packages.
 Submitted-data validation belongs in `form.validation`.

@@ -6,18 +6,20 @@
 
 | Directory    | Responsibility                                    |
 | ------------ | ------------------------------------------------- |
-| `R/`         | Package documentation and future workbook APIs.   |
+| `R/`         | Package documentation and workbook APIs.          |
 | `inst/`      | Future installed resources and neutral examples.  |
 | `man/`       | Generated roxygen documentation.                  |
-| `tests/`     | Test runner and future approved tests.            |
+| `tests/`     | Split behaviour tests and test helpers.           |
 | `tools/`     | Coverage and pkgdown site generation.             |
 | `vignettes/` | Package guides and coverage article.              |
 | `.github/`   | Issue templates, CI, release, and site workflows. |
 
-The scaffold exports no functions and contains no behavioural tests or domain resources.
+`split.R` selects records and manages output publication.
+`workbook.R` reads XLSX parts, resolves values and keys, and populates template worksheets
+while preserving other workbook parts.
 
-Add runtime dependencies when their first implementation requires them.
-Workbook operations will consume `form.model` through its public API.
+Workbook operations consume `form.model` through its public API.
+`xml2` reads and writes worksheet XML; `zip` assembles output XLSX archives.
 
 ## Local verification
 
@@ -32,10 +34,10 @@ R CMD check --no-manual --output=build "build/form.tools_${package_version}.tar.
 Rscript tools/build-site.R
 ```
 
-The test runner runs tests only once test files exist. The skeleton has no tests to execute.
+The split tests use the installed survey model, source workbook and empty template from `form.model`.
 
 The site includes a native coverage page at `docs/articles/coverage.html`, using the shared theme and navigation.
-Coverage is not measured until executable code and tests are introduced.
+The tests cover composite keys, metadata, template preservation and rejection of unsafe split inputs.
 
 Coverage CSV and XML stay in `docs/coverage/`. Archives and check output stay in `build/`.
 
@@ -69,4 +71,4 @@ Review coverage gaps for missing behaviour. Check installed resources, runnable 
 
 ## License
 
-LGPL-2.1. See [LICENSE](LICENSE).
+LGPL-2.1. See the [license text](https://www.gnu.org/licenses/old-licenses/lgpl-2.1.html).
