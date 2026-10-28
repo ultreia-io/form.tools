@@ -1,0 +1,49 @@
+url: https://ultreia-io.github.io/form.tools/
+template:
+  bootstrap: 5
+  light-switch: true
+reference:
+  - title: Package
+    contents: [form.tools-package]
+articles:
+  - title: Guides
+    navbar: Guides
+    contents: [form.tools]
+  - title: Development
+    contents: [articles/coverage]
+navbar:
+  structure:
+    left: [intro, reference, articles, news, coverage, community]
+    right: [search, github, lightswitch]
+  components:
+    coverage:
+      text: Coverage
+      href: articles/coverage.html
+    intro:
+      text: Get started
+      href: articles/form.tools.html
+    community:
+      text: Community
+      menu:
+        - text: Contributing
+          href: CONTRIBUTING.html
+        - text: Maintainer guide
+          href: DEVELOPMENT.html
+        - text: Security policy
+          href: SECURITY.html
+        - text: Code of conduct
+          href: CODE_OF_CONDUCT.html
+# Avoid repository-discovery HTTP requests; all navigation links are explicit.
+home:
+  sidebar: false
+news:
+  cran_dates: false
+
+footer:
+  structure:
+    left: [company, copyright, license]
+    right: built_with
+  components:
+    company: "[ultreia.io](https://ultreia.io/)"
+    copyright: "· © 2026"
+    license: "· [License: LGPL-2.1](https://github.com/ultreia-io/form.tools/blob/main/LICENSE)"

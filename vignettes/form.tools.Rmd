@@ -1,0 +1,23 @@
+---
+title: "Getting started"
+output: rmarkdown::html_vignette
+vignette: >
+  %\VignetteIndexEntry{Getting started}
+  %\VignetteEngine{knitr::rmarkdown}
+  %\VignetteEncoding{UTF-8}
+---
+
+## Package status
+
+`form.tools` is a skeleton for neutral, model-driven workbook operations.
+It does not yet export workbook functions.
+
+## Planned workflow
+
+The caller supplies a form model, a structurally valid source workbook, and a matching empty template.
+Primary-key and parent-key checks must also pass before splitting.
+
+The splitter will select records for each root key and populate a separate workbook using the template.
+Shared-sheet copying and output naming remain explicit design decisions.
+
+Domain packages supply their own form definitions and templates.
