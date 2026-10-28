@@ -3,6 +3,8 @@ template:
   bootstrap: 5
   light-switch: true
 reference:
+  - title: Workbook operations
+    contents: [split_form_workbook]
   - title: Package
     contents: [form.tools-package]
 articles:

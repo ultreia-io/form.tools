@@ -1,4 +1,4 @@
 # form.tools 0.1.0
 
-* Initialize the neutral workbook-tools package skeleton using the form.model project layout.
-* Include package documentation, development tooling, and GitHub workflows.
+* Split workbooks by model keys, preserving templates and shared data.
+* Name outputs using the source filename and root key; never overwrite existing files.

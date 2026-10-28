@@ -7,17 +7,66 @@ vignette: >
   %\VignetteEncoding{UTF-8}
 ---
 
-## Package status
+## Split one workbook into several
 
-`form.tools` is a skeleton for neutral, model-driven workbook operations.
-It does not yet export workbook functions.
+A model declares fixed-cell metadata, table layouts, primary keys, and parent keys.
+The caller supplies a structurally validated source workbook and an empty template for the same model version.
 
-## Planned workflow
+The bundled survey model has a composite primary key `[station, observation_id]` on `Observations`.
+Each output contains one observation and all fixed metadata, even when identifiers repeat across stations.
 
-The caller supplies a form model, a structurally valid source workbook, and a matching empty template.
-Primary-key and parent-key checks must also pass before splitting.
+```{r split, eval=FALSE}
+library(form.tools)
+examples <- system.file("examples", package = "form.model")
+model <- form.model::load_form_model("survey", examples)
+outputs <- split_form_workbook(
+  file.path(examples, "survey.xlsx"), model,
+  root_sheet = "Observations",
+  template = file.path(examples, "survey-empty.xlsx"),
+  directory = "survey-by-observation",
+  shared_sheets = "Equipment"
+)
+outputs
+```
 
-The splitter will select records for each root key and populate a separate workbook using the template.
-Shared-sheet copying and output naming remain explicit design decisions.
+Output filenames retain the original basename and append the root primary-key values in model order.
+For example, `survey.xlsx` with key `[ST01, OBS-001]` produces `survey_ST01_OBS-001.xlsx`.
+Invalid filename characters become `_`; case-insensitive collisions and names exceeding 255 bytes are rejected.
+The returned manifest maps each file to its source row and primary-key components.
+Root key values are never interpreted as filesystem paths.
 
-Domain packages supply their own form definitions and templates.
+## Shared data
+
+Fixed-cell model fields are copied into every output workbook.
+Template sheets outside the model remain unchanged.
+Source sheets outside the model are not copied.
+
+The survey example copies the independent `Equipment` table with `shared_sheets = "Equipment"`.
+
+All tables outside the selected hierarchy must be declared shared; the tool never silently drops such tables.
+
+## Template requirements
+
+The model and both workbooks must agree on worksheet names and physical layouts.
+The caller selects the exact template version. Both workbooks must use the same Excel date system.
+
+Table data regions must contain no values or formulas.
+Prepare the first data row with the desired column styles and row height for additional records.
+Existing styled rows are retained. Standard validation and conditional-formatting ranges are extended as needed.
+
+Excel tables and merged cells in template data regions are not supported.
+Fixed print areas and extended Excel validation ranges are preserved without expansion.
+
+## Validation and publication
+
+The source must already pass structural validation.
+The splitter also checks required sheets, extents, complete and unique primary keys, and existing parent keys.
+Other field and business-rule findings do not prevent splitting.
+
+Source formulas contribute cached values only. Excel errors and formulas without caches in modeled fields are rejected.
+Template formulas outside modeled fields are retained; the output requests recalculation when opened in Excel.
+R does not recalculate formulas.
+
+The output directory must be new, with an existing parent directory.
+All output files are prepared before the directory is published; failures leave no partial output directory.
+Neither the input workbook nor the template is modified.
