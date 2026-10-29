@@ -21,6 +21,8 @@
 #'   The template must have no values or formulas in modeled table data regions.
 #'
 #'   Existing template styles, header cells, and workbook parts are retained.
+#'   Numeric date and datetime fields retain their source number formats while
+#'   keeping the template's other cell styling. Raw values are not converted.
 #'   Additional rows inherit the first template data row's style and height.
 #'   Standard validation and conditional-formatting ranges are extended when needed.
 #'   Excel tables, merged data cells, and formulas in template data rows are rejected.
@@ -142,10 +144,12 @@ split_form_workbook <- function(path, model, root_sheet, template, directory,
       if (!file.copy(file.path(blank$directory, entry), output, recursive = TRUE))
         stop("Cannot copy template", call. = FALSE)
     }
+    number_formats <- split_number_formats(source, blank)
     for (name in names(definitions)) {
       write_split_sheet(data[[name]], patterns[[name]], definitions[[name]], chosen[[name]],
-                        file.path(output, blank$parts[[name]]))
+                        file.path(output, blank$parts[[name]]), number_formats)
     }
+    number_formats$write(output)
     request_workbook_calculation(file.path(output, "xl/workbook.xml"))
     zip::zipr(file.path(stage, output_names[[i]]),
       list.files(output, recursive = TRUE, all.files = TRUE, no.. = TRUE),
