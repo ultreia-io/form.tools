@@ -4,7 +4,14 @@
 \alias{write_split_sheet}
 \title{Populate a copy of a template worksheet}
 \usage{
-write_split_sheet(source, pattern, definition, rows, destination)
+write_split_sheet(
+  source,
+  pattern,
+  definition,
+  rows,
+  destination,
+  number_formats
+)
 }
 \arguments{
 \item{source}{Source worksheet descriptor returned by \code{\link[=xlsx_sheet]{xlsx_sheet()}}.}
@@ -16,6 +23,8 @@ write_split_sheet(source, pattern, definition, rows, destination)
 \item{rows}{Selected physical source rows for table layouts; unused for fixed cells.}
 
 \item{destination}{Path of the extracted worksheet XML part to write.}
+
+\item{number_formats}{Callbacks returned by \code{\link[=split_number_formats]{split_number_formats()}}.}
 }
 \value{
 The invisible result of \code{\link[xml2:write_xml]{xml2::write_xml()}}.
@@ -26,7 +35,8 @@ Populate a copy of a template worksheet
 \details{
 Copies fixed fields or compacts selected table records from the model
 start row. New rows inherit the first template data row where available.
-Existing styles are retained, standard ranges are extended, and the sheet
+Numeric date/datetime values receive their source number format. Other
+template styles are retained, standard ranges are extended, and the sheet
 dimension is updated. Source and template descriptors are not modified.
 Formula-bearing fixed template fields and excessive output extents raise errors.
 }

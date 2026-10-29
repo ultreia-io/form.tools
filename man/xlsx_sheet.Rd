@@ -15,6 +15,7 @@ xlsx_sheet(book, name)
 A list with the XML \code{document}, \code{cells}, \code{addresses}, numeric \code{row} and
 \code{column} positions, named \code{values}, a hashed \code{lookup} environment, and logical
 \code{formulas} flags. Each value is \code{NULL} or a list with \code{type} and \code{value} strings.
+Numeric values also retain their source cell \code{style} index.
 }
 \description{
 Read worksheet cells and cached values

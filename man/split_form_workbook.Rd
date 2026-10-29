@@ -46,6 +46,8 @@ Unmodeled template sheets are retained; unmodeled source sheets are not copied.
 The template must have no values or formulas in modeled table data regions.
 
 Existing template styles, header cells, and workbook parts are retained.
+Numeric date and datetime fields retain their source number formats while
+keeping the template's other cell styling. Raw values are not converted.
 Additional rows inherit the first template data row's style and height.
 Standard validation and conditional-formatting ranges are extended when needed.
 Excel tables, merged data cells, and formulas in template data rows are rejected.

@@ -117,6 +117,7 @@ xlsx_read <- function(path, directory) {
 #' @return A list with the XML `document`, `cells`, `addresses`, numeric `row` and
 #'   `column` positions, named `values`, a hashed `lookup` environment, and logical
 #'   `formulas` flags. Each value is `NULL` or a list with `type` and `value` strings.
+#'   Numeric values also retain their source cell `style` index.
 #' @details Shared strings and cached string results become inline-string values.
 #'   Formulas are not evaluated. Duplicate addresses and invalid shared-string
 #'   indexes raise errors; unsupported value types are checked by the caller.
@@ -147,7 +148,9 @@ xlsx_sheet <- function(book, name) {
       type <- "inlineStr"
     }
     if (type == "str") type <- "inlineStr"
-    list(type = type, value = value)
+    result <- list(type = type, value = value)
+    if (type == "n") result$style <- xml2::xml_attr(cell, "s", default = "0")
+    result
   })
   names(values) <- addresses
   formulas <- vapply(cells, function(cell) length(xlsx_nodes(cell, "f")) > 0, logical(1))
@@ -204,6 +207,114 @@ xlsx_key <- function(sheet, rows, columns, label) {
 }
 
 # Template population preserves cell styles and untouched XLSX parts.
+
+#' Preserve source number formats in template cell styles
+#' @param source,template Workbook descriptors returned by [xlsx_read()].
+#' @return A list of `apply(cell, style)` and `write(directory)` callbacks for
+#'   one output workbook. `style` is a source cell-style index; `directory` is
+#'   the extracted output workbook. Both callbacks return invisible `NULL`.
+#' @details Imports custom number formats with workbook-local IDs and clones
+#'   template cell styles while retaining fonts, fills, borders and alignment.
+#'   Identical format codes and repeated style combinations are reused. The
+#'   stylesheet is written only when changed; a missing template stylesheet is
+#'   created and registered when needed. Source and template remain unchanged.
+#' @keywords internal
+split_number_formats <- function(source, template) {
+  # Read styles when present; an unstyled workbook uses the General format.
+  read_styles <- function(book) {
+    path <- file.path(book$directory, "xl/styles.xml")
+    if (file.exists(path)) xml2::read_xml(path, options = "NONET") else NULL
+  }
+  source_styles <- read_styles(source)
+  document <- read_styles(template)
+  missing_styles <- is.null(document)
+  if (missing_styles) document <- xml2::read_xml(paste0(
+    '<styleSheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">',
+    '<fonts count="1"><font/></fonts><fills count="2"><fill><patternFill patternType="none"/>',
+    '</fill><fill><patternFill patternType="gray125"/></fill></fills>',
+    '<borders count="1"><border/></borders><cellStyleXfs count="1"><xf numFmtId="0" ',
+    'fontId="0" fillId="0" borderId="0"/></cellStyleXfs><cellXfs count="1">',
+    '<xf numFmtId="0" fontId="0" fillId="0" borderId="0" xfId="0"/></cellXfs></styleSheet>'))
+  changed <- FALSE
+  cache <- new.env(parent = emptyenv())
+  # Resolve a source format, importing custom codes without reusing source IDs.
+  format_id <- function(style) {
+    id <- "0"
+    if (!is.null(source_styles)) {
+      styles <- xlsx_nodes(xlsx_one(source_styles, "cellXfs"), "xf")
+      index <- suppressWarnings(as.integer(style)) + 1L
+      if (is.na(index) || index < 1L || index > length(styles))
+        stop("Invalid source cell style: ", style, call. = FALSE)
+      id <- xml2::xml_attr(styles[[index]], "numFmtId", default = "0")
+      formats <- xlsx_nodes(xlsx_one(source_styles, "numFmts"), "numFmt")
+      custom <- formats[xml2::xml_attr(formats, "numFmtId") == id]
+      if (length(custom)) {
+        code <- xml2::xml_attr(custom[[1L]], "formatCode")
+        formats <- xlsx_nodes(xlsx_one(document, "numFmts"), "numFmt")
+        same <- which(xml2::xml_attr(formats, "formatCode") == code)
+        if (length(same)) return(xml2::xml_attr(formats[[same[[1L]]]], "numFmtId"))
+        used <- c(xml2::xml_attr(formats, "numFmtId"),
+          xml2::xml_attr(xlsx_nodes(xlsx_one(document, "cellXfs"), "xf"), "numFmtId"))
+        id <- as.character(max(c(163L, as.integer(used)), na.rm = TRUE) + 1L)
+        container <- xlsx_one(document, "numFmts")
+        if (inherits(container, "xml_missing"))
+          container <- xml2::xml_add_sibling(xml2::xml_children(document)[[1L]], "numFmts", .where = "before")
+        xml2::xml_add_child(container, "numFmt", numFmtId = id, formatCode = code)
+        xml2::xml_set_attr(container, "count", as.character(length(xlsx_nodes(container, "numFmt"))))
+        changed <<- TRUE
+      } else if (is.na(suppressWarnings(as.integer(id))) || as.integer(id) >= 164L) {
+        stop("Missing source number format: ", id, call. = FALSE)
+      }
+    }
+    id
+  }
+  # Apply only the number format, preserving all other template style settings.
+  apply <- function(cell, source_style) {
+    style <- xml2::xml_attr(cell, "s", default = "0")
+    key <- paste(style, source_style, sep = "/")
+    if (!exists(key, cache, inherits = FALSE)) {
+      id <- format_id(source_style)
+      container <- xlsx_one(document, "cellXfs")
+      styles <- xlsx_nodes(container, "xf")
+      index <- suppressWarnings(as.integer(style)) + 1L
+      if (is.na(index) || index < 1L || index > length(styles))
+        stop("Invalid template cell style: ", style, call. = FALSE)
+      if (!identical(xml2::xml_attr(styles[[index]], "numFmtId", default = "0"), id)) {
+        clone <- xml2::xml_add_child(container, styles[[index]])
+        xml2::xml_set_attr(clone, "numFmtId", id)
+        xml2::xml_set_attr(clone, "applyNumberFormat", "1")
+        style <- as.character(length(styles))
+        xml2::xml_set_attr(container, "count", as.character(length(styles) + 1L))
+        changed <<- TRUE
+      }
+      cache[[key]] <- style
+    }
+    xml2::xml_set_attr(cell, "s", cache[[key]])
+    invisible(NULL)
+  }
+  # Save new styles and register a newly created stylesheet in the XLSX package.
+  write <- function(directory) {
+    if (!changed) return(invisible(NULL))
+    xml2::write_xml(document, file.path(directory, "xl/styles.xml"))
+    if (missing_styles) {
+      path <- file.path(directory, "xl/_rels/workbook.xml.rels")
+      rels <- xml2::read_xml(path, options = "NONET")
+      ids <- xml2::xml_attr(xlsx_nodes(rels, "Relationship"), "Id")
+      number <- 1L
+      while (paste0("rId", number) %in% ids) number <- number + 1L
+      xml2::xml_add_child(rels, "Relationship", Id = paste0("rId", number),
+        Type = "http://schemas.openxmlformats.org/officeDocument/2006/relationships/styles", Target = "styles.xml")
+      xml2::write_xml(rels, path)
+      path <- file.path(directory, "[Content_Types].xml")
+      types <- xml2::read_xml(path, options = "NONET")
+      xml2::xml_add_child(types, "Override", PartName = "/xl/styles.xml",
+        ContentType = "application/vnd.openxmlformats-officedocument.spreadsheetml.styles+xml")
+      xml2::write_xml(types, path)
+    }
+    invisible(NULL)
+  }
+  list(apply = apply, write = write)
+}
 
 #' Request formula recalculation when Excel opens a workbook
 #' @param path Path to the extracted `xl/workbook.xml` part to update in place.
@@ -306,14 +417,16 @@ extend_sheet_ranges <- function(document, start, last, columns) {
 #' @param definition Model sheet definition with fields and physical layout.
 #' @param rows Selected physical source rows for table layouts; unused for fixed cells.
 #' @param destination Path of the extracted worksheet XML part to write.
+#' @param number_formats Callbacks returned by [split_number_formats()].
 #' @return The invisible result of [xml2::write_xml()].
 #' @details Copies fixed fields or compacts selected table records from the model
 #'   start row. New rows inherit the first template data row where available.
-#'   Existing styles are retained, standard ranges are extended, and the sheet
+#'   Numeric date/datetime values receive their source number format. Other
+#'   template styles are retained, standard ranges are extended, and the sheet
 #'   dimension is updated. Source and template descriptors are not modified.
 #'   Formula-bearing fixed template fields and excessive output extents raise errors.
 #' @keywords internal
-write_split_sheet <- function(source, pattern, definition, rows, destination) {
+write_split_sheet <- function(source, pattern, definition, rows, destination, number_formats) {
   document <- xml2::read_xml(as.character(pattern$document), options = "NONET")
   sheet_data <- xlsx_one(document, "sheetData")
   if (inherits(sheet_data, "xml_missing")) stop("Template worksheet has no sheetData", call. = FALSE)
@@ -351,8 +464,8 @@ write_split_sheet <- function(source, pattern, definition, rows, destination) {
     result
   }
   # Write a cell-value list at one-based coordinates, inserting a cell in order.
-  # Mutates the output XML tree and returns invisible NULL through write_cell_value.
-  put <- function(row, column, value) {
+  # Mutates the output XML tree, applying source number formats to temporal fields.
+  put <- function(row, column, value, field) {
     node <- get_row(row)
     address <- paste0(xlsx_column(column), row)
     cells <- xlsx_nodes(node, "c")
@@ -365,6 +478,8 @@ write_split_sheet <- function(source, pattern, definition, rows, destination) {
       else cell <- xml2::xml_add_child(node, cell)
     } else cell <- cells[[index]]
     write_cell_value(cell, value)
+    if (!xlsx_blank(value) && value$type == "n" && field$type %in% c("date", "datetime"))
+      number_formats$apply(cell, value$style)
   }
   if (definition$layout$kind == "cells") {
     for (field in definition$fields) {
@@ -372,7 +487,7 @@ write_split_sheet <- function(source, pattern, definition, rows, destination) {
       if (!is.na(index) && pattern$formulas[[index]])
         stop("Template fixed field contains a formula: ", field$location, call. = FALSE)
       address <- xlsx_address(field$location)
-      put(address$row, address$column, xlsx_value(source, address$row, address$column))
+      put(address$row, address$column, xlsx_value(source, address$row, address$column), field)
     }
   } else {
     start <- definition$layout$start_row
@@ -382,7 +497,7 @@ write_split_sheet <- function(source, pattern, definition, rows, destination) {
     for (i in seq_along(rows)) {
       for (column in seq_along(definition$fields)) {
         value <- xlsx_value(source, rows[[i]], column)
-        if (!xlsx_blank(value)) put(start + i - 1L, column, value)
+        if (!xlsx_blank(value)) put(start + i - 1L, column, value, definition$fields[[column]])
       }
     }
     extend_sheet_ranges(document, start, last, length(definition$fields))
