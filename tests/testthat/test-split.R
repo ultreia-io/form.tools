@@ -6,7 +6,7 @@ test_that('survey observations split by their complete composite primary key', {
     file.path(directory, 'split'), shared_sheets = 'Equipment')
 
   expect_identical(basename(outputs$file),
-    c('survey_ST01_OBS-001.xlsx', 'survey_ST02_OBS-001.xlsx', 'survey_ST01_OBS-002.xlsx'))
+    c('form_ST01_OBS-001.xlsx', 'form_ST02_OBS-001.xlsx', 'form_ST01_OBS-002.xlsx'))
   expect_equal(outputs$source_row, c(6, 8, 9))
   expect_identical(outputs$key.station, c('ST01', 'ST02', 'ST01'))
   expect_identical(outputs$key.observation_id, c('OBS-001', 'OBS-001', 'OBS-002'))
@@ -15,6 +15,8 @@ test_that('survey observations split by their complete composite primary key', {
   samples <- example_records(example$source, 'Samples', 6)
   measurements <- example_records(example$source, 'Measurements', 5)
   equipment <- example_records(example$source, 'Equipment', 3)
+  notes <- example_records(example$source, 'Notes', 5)
+  note_rows <- list(c(1L, 2L, 5L, 6L, 7L), 3L, 4L)
   sample_rows <- list(c(1L, 3L), 2L, integer())
   measurement_rows <- list(c(1L, 3L, 4L), 2L, integer())
   metadata <- readxl::read_excel(example$source, sheet = 'Metadata', range = 'C2:C5',
@@ -28,6 +30,8 @@ test_that('survey observations split by their complete composite primary key', {
     expect_equal(example_records(outputs$file[[i]], 'Samples', 6), children)
     expect_equal(example_records(outputs$file[[i]], 'Measurements', 5), grandchildren)
     expect_equal(example_records(outputs$file[[i]], 'Equipment', 3), equipment)
+    details <- notes[note_rows[[i]], , drop = FALSE]; rownames(details) <- NULL
+    expect_equal(example_records(outputs$file[[i]], 'Notes', 5), details)
     expect_equal(readxl::read_excel(outputs$file[[i]], sheet = 'Metadata', range = 'C2:C5',
       col_names = FALSE, col_types = 'text', .name_repair = 'minimal'), metadata)
     expect_identical(example_part(outputs$file[[i]], 'xl/styles.xml'), example_part(example$template, 'xl/styles.xml'))
@@ -66,6 +70,8 @@ test_that('different keys cannot overwrite each other after filename sanitizatio
   source <- change_example_cells(example$source, 2, c(A6 = 'ST/01', A8 = 'ST:01'), directory)
   source <- change_example_cells(source, 4, c(A6 = 'ST/01', A7 = 'ST:01', A9 = 'ST/01'), directory)
   source <- change_example_cells(source, 5, c(A6 = 'ST/01', A7 = 'ST:01', A8 = 'ST/01', A9 = 'ST/01'), directory)
+  source <- change_example_cells(source, 7, c(A6 = 'ST/01', A7 = 'ST/01', A8 = 'ST:01',
+    A10 = 'ST/01', A11 = 'ST/01', A12 = 'ST/01'), directory)
   output <- file.path(directory, 'split')
   expect_error(split_form_workbook(source, example$model, 'Observations', example$template, output, 'Equipment'),
     'duplicate output filenames after sanitization')
