@@ -1,62 +1,6 @@
-# Internal XLSX reading and template population preserve supporting workbook parts.
+# Internal helpers ----------------------------------------------------------
 
-#' Validate a required text argument
-#' @param value Candidate scalar character value; missing or empty text is rejected.
-#' @param name Argument name used in the error message.
-#' @return The unchanged string. Invalid arguments raise an error.
-#' @keywords internal
-tool_text <- function(value, name) {
-  if (!is.character(value) || length(value) != 1L || is.na(value) || !nzchar(value))
-    stop(name, " must be a non-empty string", call. = FALSE)
-  value
-}
-
-#' Find direct XML children by local name
-#' @param node XML node or document to inspect.
-#' @param name Local element name, supplied by internal callers.
-#' @return An XML node set, possibly empty. Namespace prefixes are ignored.
-#' @keywords internal
-xlsx_nodes <- function(node, name) {
-  xml2::xml_find_all(node, paste0("./*[local-name()='", name, "']"), ns = character())
-}
-
-#' Find the first direct XML child by local name
-#' @param node XML node or document to inspect.
-#' @param name Local element name, supplied by internal callers.
-#' @return The first matching XML node, or an `xml_missing` node.
-#' @keywords internal
-xlsx_one <- function(node, name) {
-  xml2::xml_find_first(node, paste0("./*[local-name()='", name, "']"), ns = character())
-}
-
-#' Decode worksheet cell addresses
-#' @param address Character vector of uppercase A1 addresses without dollar signs.
-#' @return A list of numeric `row` and `column` vectors in input order.
-#'   Invalid addresses and coordinates beyond XLSX limits raise an error.
-#' @keywords internal
-xlsx_address <- function(address) {
-  if (anyNA(address) || any(!grepl("^[A-Z]+[1-9][0-9]*$", address)))
-    stop("Invalid worksheet cell address", call. = FALSE)
-  column <- vapply(strsplit(sub("[0-9]+$", "", address), ""), function(chars) {
-    Reduce(function(a, b) a * 26 + match(b, LETTERS), chars, init = 0)
-  }, numeric(1))
-  row <- as.numeric(sub("^[A-Z]+", "", address))
-  if (any(column > 16384 | row > 1048576)) stop("Cell exceeds XLSX limits", call. = FALSE)
-  list(row = row, column = column)
-}
-
-#' Encode a worksheet column number
-#' @param number Positive integer column index, using one-based indexing.
-#' @return The uppercase Excel column letters. Callers supply a valid index.
-#' @keywords internal
-xlsx_column <- function(number) {
-  result <- ""
-  while (number > 0) {
-    result <- paste0(LETTERS[(number - 1) %% 26 + 1], result)
-    number <- (number - 1) %/% 26
-  }
-  result
-}
+# Workbook reading ----------------------------------------------------------
 
 #' Extract an XLSX workbook and resolve its worksheet parts
 #' @param path Path to an existing XLSX file.
@@ -161,15 +105,6 @@ xlsx_sheet <- function(book, name) {
        lookup = lookup, formulas = formulas)
 }
 
-#' Recognize an absent or empty cell value
-#' @param value `NULL` or a cell-value list containing a scalar `value` string.
-#' @return Whether the value is absent or the string is empty.
-#'   Whitespace is retained and is not considered blank.
-#' @keywords internal
-xlsx_blank <- function(value) {
-  is.null(value) || !nzchar(value$value)
-}
-
 #' Look up a worksheet cell value
 #' @param sheet Worksheet descriptor returned by [xlsx_sheet()].
 #' @param row One-based physical row number.
@@ -208,6 +143,225 @@ xlsx_key <- function(sheet, rows, columns, label) {
 
 # Template population preserves cell styles and untouched XLSX parts.
 
+# Template writing ----------------------------------------------------------
+
+#' Populate a copy of a template worksheet
+#' @param source Source worksheet descriptor returned by [xlsx_sheet()].
+#' @param pattern Empty template worksheet descriptor returned by [xlsx_sheet()].
+#' @param definition Model sheet definition with fields and physical layout.
+#' @param rows Selected physical source rows for table layouts; unused for fixed cells.
+#' @param destination Path of the extracted worksheet XML part to write.
+#' @param number_formats Callbacks returned by [split_number_formats()].
+#' @return The invisible result of [xml2::write_xml()].
+#' @details Copies fixed fields or compacts selected table records from the model
+#'   start row. New rows inherit the first template data row where available.
+#'   Numeric date/datetime values receive their source number format. Other
+#'   template styles are retained, standard ranges are extended, and the sheet
+#'   dimension is updated. Source and template descriptors are not modified.
+#'   Formula-bearing fixed template fields and excessive output extents raise errors.
+#' @keywords internal
+write_split_sheet <- function(source, pattern, definition, rows, destination, number_formats) {
+  value_at <- function(row, column, field) xlsx_value(source, row, column)
+  write_template_sheet(pattern, definition, rows, destination, number_formats, value_at)
+}
+
+#' Populate a template worksheet from an encoded value provider
+#' @param pattern Template worksheet descriptor.
+#' @param definition Checked form model sheet definition.
+#' @param rows Input row identifiers for table layouts.
+#' @param destination Worksheet XML destination.
+#' @param number_formats Number-format apply and write callbacks.
+#' @param value_at Function receiving a row, column and field name, returning an encoded cell value.
+#' @param keep_empty_rows Materialize empty table rows; defaults to FALSE for the splitter.
+#' @return The invisible result of writing the worksheet XML.
+#' @keywords internal
+write_template_sheet <- function(pattern, definition, rows, destination, number_formats,
+                                 value_at, keep_empty_rows = FALSE) {
+  document <- xml2::read_xml(as.character(pattern$document), options = "NONET")
+  sheet_data <- xlsx_one(document, "sheetData")
+  if (inherits(sheet_data, "xml_missing")) stop("Template worksheet has no sheetData", call. = FALSE)
+  existing <- xlsx_nodes(sheet_data, "row")
+  row_numbers <- as.integer(xml2::xml_attr(existing, "r"))
+  if (anyNA(row_numbers) || anyDuplicated(row_numbers)) stop("Invalid template rows", call. = FALSE)
+  # Keep lookups local to this output; never mutate the reusable template tree.
+  row_cache <- new.env(parent = emptyenv())
+  for (i in seq_along(existing)) row_cache[[as.character(row_numbers[[i]])]] <- existing[[i]]
+  prototype <- NULL
+  if (definition$layout$kind == "table") {
+    template_rows <- xlsx_nodes(xlsx_one(pattern$document, "sheetData"), "row")
+    index <- match(as.character(definition$layout$start_row), xml2::xml_attr(template_rows, "r"))
+    if (!is.na(index)) prototype <- template_rows[[index]]
+  }
+  # Return the output XML row at the one-based number, creating it in order.
+  # Clone the template prototype when present; update row_cache and row_numbers.
+  get_row <- function(number) {
+    key <- as.character(number)
+    if (exists(key, row_cache, inherits = FALSE)) return(row_cache[[key]])
+    # Existing template rows are usually a prefix. Insert before the next row if needed.
+    after <- which(row_numbers > number)
+    node <- if (is.null(prototype)) xml2::read_xml(paste0('<row r="', number, '"/>')) else prototype
+    if (length(after)) {
+      next_row <- min(row_numbers[after])
+      result <- xml2::xml_add_sibling(row_cache[[as.character(next_row)]], node, .where = "before")
+    } else result <- xml2::xml_add_child(sheet_data, node)
+    xml2::xml_set_attr(result, "r", key)
+    for (cell in xlsx_nodes(result, "c")) {
+      address <- xml2::xml_attr(cell, "r")
+      xml2::xml_set_attr(cell, "r", paste0(sub("[0-9]+$", "", address), key))
+    }
+    row_cache[[key]] <- result
+    row_numbers <<- c(row_numbers, number)
+    result
+  }
+  # Write a cell-value list at one-based coordinates, inserting a cell in order.
+  # Mutates the output XML tree, applying source number formats to temporal fields.
+  put <- function(row, column, value, field) {
+    node <- get_row(row)
+    address <- paste0(xlsx_column(column), row)
+    cells <- xlsx_nodes(node, "c")
+    addresses <- xml2::xml_attr(cells, "r")
+    index <- match(address, addresses)
+    if (is.na(index)) {
+      later <- which(xlsx_address(addresses)$column > column)
+      cell <- xml2::read_xml(paste0('<c r="', address, '"/>'))
+      if (length(later)) cell <- xml2::xml_add_sibling(cells[[later[[1]]]], cell, .where = "before")
+      else cell <- xml2::xml_add_child(node, cell)
+    } else cell <- cells[[index]]
+    write_cell_value(cell, value)
+    if (!xlsx_blank(value) && value$type == "n" && field$type %in% c("date", "datetime"))
+      number_formats$apply(cell, value$style)
+  }
+  if (definition$layout$kind == "cells") {
+    for (field_name in names(definition$fields)) {
+      field <- definition$fields[[field_name]]
+      index <- match(field$location, pattern$addresses)
+      if (!is.na(index) && pattern$formulas[[index]])
+        stop("Template fixed field contains a formula: ", field$location, call. = FALSE)
+      address <- xlsx_address(field$location)
+      put(address$row, address$column, value_at(address$row, address$column, field_name), field)
+    }
+  } else {
+    start <- definition$layout$start_row
+    last <- start + length(rows) - 1L
+    if (last > 1048576 || (!is.null(definition$layout$row_count) && last > definition$layout$row_count))
+      stop("Output exceeds declared worksheet extent", call. = FALSE)
+    for (i in seq_along(rows)) {
+      if (keep_empty_rows) get_row(start + i - 1L)
+      for (column in seq_along(definition$fields)) {
+        value <- value_at(rows[[i]], column, names(definition$fields)[[column]])
+        if (!xlsx_blank(value)) put(start + i - 1L, column, value, definition$fields[[column]])
+      }
+    }
+    extend_sheet_ranges(document, start, last, length(definition$fields))
+  }
+  dimension <- xlsx_one(document, "dimension")
+  if (!inherits(dimension, "xml_missing")) {
+    cells <- xml2::xml_find_all(sheet_data, "./*[local-name()='row']/*[local-name()='c']", ns = character())
+    positions <- xlsx_address(xml2::xml_attr(cells, "r"))
+    if (length(cells)) xml2::xml_set_attr(dimension, "ref",
+      paste0("A1:", xlsx_column(max(positions$column)),
+        max(c(positions$row, if (keep_empty_rows) row_numbers))))
+  }
+  xml2::write_xml(document, destination)
+}
+
+#' Check that a template table can receive split records
+#' @param sheet Template worksheet descriptor returned by [xlsx_sheet()].
+#' @param definition Model sheet definition with a table layout and start row.
+#' @param name Worksheet name used in diagnostics.
+#' @return No useful value. Raises an error for populated data rows, formulas,
+#'   Excel tables, or merged ranges reaching the data region.
+#' @details Styled empty cells are permitted. The worksheet is not modified.
+#' @keywords internal
+check_template_table <- function(sheet, definition, name) {
+  start <- definition$layout$start_row
+  data <- sheet$row >= start
+  if (any(data & (!vapply(sheet$values, xlsx_blank, logical(1)) | sheet$formulas)))
+    stop("Template data region is not empty in ", name, call. = FALSE)
+  if (length(xlsx_nodes(sheet$document, "tableParts")))
+    stop("Excel tables are not supported in template sheet ", name, call. = FALSE)
+  merged <- xml2::xml_attr(xml2::xml_find_all(sheet$document,
+    "./*[local-name()='mergeCells']/*[local-name()='mergeCell']", ns = character()), "ref")
+  if (length(merged) && any(vapply(strsplit(merged, ":", fixed = TRUE), function(range) {
+    max(xlsx_address(range)$row) >= start
+  }, logical(1)))) stop("Merged data cells are not supported in ", name, call. = FALSE)
+}
+
+#' Replace a cell payload while retaining its formatting
+#' @param cell XML cell node to modify in place.
+#' @param value `NULL` or a supported cell-value list with `type` and `value`.
+#' @return Invisible `NULL`.
+#' @details Removes existing value, inline-string and formula children and the
+#'   old type attribute. Blank values leave a styled empty cell. Inline strings
+#'   preserve whitespace; other values are written with their supplied type.
+#' @keywords internal
+write_cell_value <- function(cell, value) {
+  xml2::xml_remove(xml2::xml_find_all(cell,
+    "./*[local-name()='v' or local-name()='is' or local-name()='f']", ns = character()))
+  xml2::xml_set_attr(cell, "t", NULL)
+  if (xlsx_blank(value)) return(invisible(NULL))
+  xml2::xml_set_attr(cell, "t", value$type)
+  if (value$type == "inlineStr") {
+    inline <- xml2::xml_add_child(cell, "is")
+    text <- xml2::xml_add_child(inline, "t", value$value)
+    xml2::xml_set_attr(text, "xml:space", "preserve")
+  } else xml2::xml_add_child(cell, "v", value$value)
+  invisible(NULL)
+}
+
+#' Extend standard worksheet ranges to cover added rows
+#' @param document Worksheet XML document to modify in place.
+#' @param start First model data row.
+#' @param last Last output data row; may precede `start` when no rows are selected.
+#' @param columns Number of modeled columns, starting at column A.
+#' @return No useful value; matching range attributes are updated in place.
+#' @details Extends standard validation, conditional-formatting and autofilter
+#'   ranges overlapping the data boundary. Existing longer ranges are retained.
+#'   Unsupported range syntax, extended Excel elements and print areas are unchanged.
+#' @keywords internal
+extend_sheet_ranges <- function(document, start, last, columns) {
+  ranges <- xml2::xml_find_all(document,
+    "./*[local-name()='dataValidations']/*[local-name()='dataValidation']/@sqref | ./*[local-name()='conditionalFormatting']/@sqref | ./*[local-name()='autoFilter']/@ref", ns = character())
+  for (attribute in ranges) {
+    value <- xml2::xml_text(attribute)
+    parts <- strsplit(value, " +")[[1]]
+    updated <- vapply(parts, function(part) {
+      bounds <- strsplit(gsub("$", "", part, fixed = TRUE), ":", fixed = TRUE)[[1]]
+      if (!all(grepl("^[A-Z]+[1-9][0-9]*$", bounds))) return(part)
+      position <- xlsx_address(bounds)
+      is_filter <- xml2::xml_name(xml2::xml_parent(attribute)) == "autoFilter"
+      if (min(position$column) > columns || max(position$row) < start - as.integer(is_filter) ||
+          min(position$row) > start || max(position$row) >= last) return(part)
+      paste0(bounds[[1]], ":", xlsx_column(max(position$column)), last)
+    }, character(1))
+    xml2::xml_set_attr(xml2::xml_parent(attribute), xml2::xml_name(attribute), paste(updated, collapse = " "))
+  }
+}
+
+#' Request formula recalculation when Excel opens a workbook
+#' @param path Path to the extracted `xl/workbook.xml` part to update in place.
+#' @return The invisible result of [xml2::write_xml()].
+#' @details Creates or updates `calcPr` with automatic calculation and full
+#'   recalculation flags. This function does not calculate formulas in R.
+#' @keywords internal
+request_workbook_calculation <- function(path) {
+  document <- xml2::read_xml(path, options = "NONET")
+  properties <- xlsx_one(document, "calcPr")
+  if (inherits(properties, "xml_missing")) {
+    # calcPr follows definedNames and precedes these optional workbook elements.
+    following <- xml2::xml_find_first(document,
+      "./*[local-name()='oleSize' or local-name()='customWorkbookViews' or local-name()='pivotCaches' or local-name()='smartTagPr' or local-name()='smartTagTypes' or local-name()='webPublishing' or local-name()='fileRecoveryPr' or local-name()='webPublishObjects' or local-name()='extLst'][1]", ns = character())
+    if (inherits(following, "xml_missing")) properties <- xml2::xml_add_child(document, "calcPr")
+    else properties <- xml2::xml_add_sibling(following, "calcPr", .where = "before")
+  }
+  xml2::xml_set_attr(properties, "fullCalcOnLoad", "1")
+  xml2::xml_set_attr(properties, "forceFullCalc", "1")
+  xml2::xml_set_attr(properties, "calcMode", "auto")
+  xml2::write_xml(document, path)
+}
+
+# Number formats ------------------------------------------------------------
+
 #' Preserve source number formats in template cell styles
 #' @param source,template Workbook descriptors returned by [xlsx_read()].
 #' @return A list of `apply(cell, style)` and `write(directory)` callbacks for
@@ -220,13 +374,19 @@ xlsx_key <- function(sheet, rows, columns, label) {
 #'   created and registered when needed. Source and template remain unchanged.
 #' @keywords internal
 split_number_formats <- function(source, template) {
-  # Read styles when present; an unstyled workbook uses the General format.
-  read_styles <- function(book) {
-    path <- file.path(book$directory, "xl/styles.xml")
-    if (file.exists(path)) xml2::read_xml(path, options = "NONET") else NULL
-  }
-  source_styles <- read_styles(source)
-  document <- read_styles(template)
+  source_path <- file.path(source$directory, "xl/styles.xml")
+  source_styles <- if (file.exists(source_path)) xml2::read_xml(source_path, options = "NONET") else NULL
+  template_number_formats(source_styles, template)
+}
+
+#' Import number formats while preserving template styling
+#' @param source_styles XML stylesheet defining the source format indexes, or NULL.
+#' @param template Workbook descriptor returned by [xlsx_read()].
+#' @return Apply and write callbacks as returned by [split_number_formats()].
+#' @keywords internal
+template_number_formats <- function(source_styles, template) {
+  template_path <- file.path(template$directory, "xl/styles.xml")
+  document <- if (file.exists(template_path)) xml2::read_xml(template_path, options = "NONET") else NULL
   missing_styles <- is.null(document)
   if (missing_styles) document <- xml2::read_xml(paste0(
     '<styleSheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">',
@@ -316,198 +476,71 @@ split_number_formats <- function(source, template) {
   list(apply = apply, write = write)
 }
 
-#' Request formula recalculation when Excel opens a workbook
-#' @param path Path to the extracted `xl/workbook.xml` part to update in place.
-#' @return The invisible result of [xml2::write_xml()].
-#' @details Creates or updates `calcPr` with automatic calculation and full
-#'   recalculation flags. This function does not calculate formulas in R.
+# XML and value helpers -----------------------------------------------------
+
+#' Find direct XML children by local name
+#' @param node XML node or document to inspect.
+#' @param name Local element name, supplied by internal callers.
+#' @return An XML node set, possibly empty. Namespace prefixes are ignored.
 #' @keywords internal
-request_workbook_calculation <- function(path) {
-  document <- xml2::read_xml(path, options = "NONET")
-  properties <- xlsx_one(document, "calcPr")
-  if (inherits(properties, "xml_missing")) {
-    # calcPr follows definedNames and precedes these optional workbook elements.
-    following <- xml2::xml_find_first(document,
-      "./*[local-name()='oleSize' or local-name()='customWorkbookViews' or local-name()='pivotCaches' or local-name()='smartTagPr' or local-name()='smartTagTypes' or local-name()='webPublishing' or local-name()='fileRecoveryPr' or local-name()='webPublishObjects' or local-name()='extLst'][1]", ns = character())
-    if (inherits(following, "xml_missing")) properties <- xml2::xml_add_child(document, "calcPr")
-    else properties <- xml2::xml_add_sibling(following, "calcPr", .where = "before")
-  }
-  xml2::xml_set_attr(properties, "fullCalcOnLoad", "1")
-  xml2::xml_set_attr(properties, "forceFullCalc", "1")
-  xml2::xml_set_attr(properties, "calcMode", "auto")
-  xml2::write_xml(document, path)
+xlsx_nodes <- function(node, name) {
+  xml2::xml_find_all(node, paste0("./*[local-name()='", name, "']"), ns = character())
 }
 
-#' Check that a template table can receive split records
-#' @param sheet Template worksheet descriptor returned by [xlsx_sheet()].
-#' @param definition Model sheet definition with a table layout and start row.
-#' @param name Worksheet name used in diagnostics.
-#' @return No useful value. Raises an error for populated data rows, formulas,
-#'   Excel tables, or merged ranges reaching the data region.
-#' @details Styled empty cells are permitted. The worksheet is not modified.
+#' Find the first direct XML child by local name
+#' @param node XML node or document to inspect.
+#' @param name Local element name, supplied by internal callers.
+#' @return The first matching XML node, or an `xml_missing` node.
 #' @keywords internal
-check_template_table <- function(sheet, definition, name) {
-  start <- definition$layout$start_row
-  data <- sheet$row >= start
-  if (any(data & (!vapply(sheet$values, xlsx_blank, logical(1)) | sheet$formulas)))
-    stop("Template data region is not empty in ", name, call. = FALSE)
-  if (length(xlsx_nodes(sheet$document, "tableParts")))
-    stop("Excel tables are not supported in template sheet ", name, call. = FALSE)
-  merged <- xml2::xml_attr(xml2::xml_find_all(sheet$document,
-    "./*[local-name()='mergeCells']/*[local-name()='mergeCell']", ns = character()), "ref")
-  if (length(merged) && any(vapply(strsplit(merged, ":", fixed = TRUE), function(range) {
-    max(xlsx_address(range)$row) >= start
-  }, logical(1)))) stop("Merged data cells are not supported in ", name, call. = FALSE)
+xlsx_one <- function(node, name) {
+  xml2::xml_find_first(node, paste0("./*[local-name()='", name, "']"), ns = character())
 }
 
-#' Replace a cell payload while retaining its formatting
-#' @param cell XML cell node to modify in place.
-#' @param value `NULL` or a supported cell-value list with `type` and `value`.
-#' @return Invisible `NULL`.
-#' @details Removes existing value, inline-string and formula children and the
-#'   old type attribute. Blank values leave a styled empty cell. Inline strings
-#'   preserve whitespace; other values are written with their supplied type.
+#' Decode worksheet cell addresses
+#' @param address Character vector of uppercase A1 addresses without dollar signs.
+#' @return A list of numeric `row` and `column` vectors in input order.
+#'   Invalid addresses and coordinates beyond XLSX limits raise an error.
 #' @keywords internal
-write_cell_value <- function(cell, value) {
-  xml2::xml_remove(xml2::xml_find_all(cell,
-    "./*[local-name()='v' or local-name()='is' or local-name()='f']", ns = character()))
-  xml2::xml_set_attr(cell, "t", NULL)
-  if (xlsx_blank(value)) return(invisible(NULL))
-  xml2::xml_set_attr(cell, "t", value$type)
-  if (value$type == "inlineStr") {
-    inline <- xml2::xml_add_child(cell, "is")
-    text <- xml2::xml_add_child(inline, "t", value$value)
-    xml2::xml_set_attr(text, "xml:space", "preserve")
-  } else xml2::xml_add_child(cell, "v", value$value)
-  invisible(NULL)
+xlsx_address <- function(address) {
+  if (anyNA(address) || any(!grepl("^[A-Z]+[1-9][0-9]*$", address)))
+    stop("Invalid worksheet cell address", call. = FALSE)
+  column <- vapply(strsplit(sub("[0-9]+$", "", address), ""), function(chars) {
+    Reduce(function(a, b) a * 26 + match(b, LETTERS), chars, init = 0)
+  }, numeric(1))
+  row <- as.numeric(sub("^[A-Z]+", "", address))
+  if (any(column > 16384 | row > 1048576)) stop("Cell exceeds XLSX limits", call. = FALSE)
+  list(row = row, column = column)
 }
 
-#' Extend standard worksheet ranges to cover added rows
-#' @param document Worksheet XML document to modify in place.
-#' @param start First model data row.
-#' @param last Last output data row; may precede `start` when no rows are selected.
-#' @param columns Number of modeled columns, starting at column A.
-#' @return No useful value; matching range attributes are updated in place.
-#' @details Extends standard validation, conditional-formatting and autofilter
-#'   ranges overlapping the data boundary. Existing longer ranges are retained.
-#'   Unsupported range syntax, extended Excel elements and print areas are unchanged.
+#' Encode a worksheet column number
+#' @param number Positive integer column index, using one-based indexing.
+#' @return The uppercase Excel column letters. Callers supply a valid index.
 #' @keywords internal
-extend_sheet_ranges <- function(document, start, last, columns) {
-  ranges <- xml2::xml_find_all(document,
-    "./*[local-name()='dataValidations']/*[local-name()='dataValidation']/@sqref | ./*[local-name()='conditionalFormatting']/@sqref | ./*[local-name()='autoFilter']/@ref", ns = character())
-  for (attribute in ranges) {
-    value <- xml2::xml_text(attribute)
-    parts <- strsplit(value, " +")[[1]]
-    updated <- vapply(parts, function(part) {
-      bounds <- strsplit(gsub("$", "", part, fixed = TRUE), ":", fixed = TRUE)[[1]]
-      if (!all(grepl("^[A-Z]+[1-9][0-9]*$", bounds))) return(part)
-      position <- xlsx_address(bounds)
-      is_filter <- xml2::xml_name(xml2::xml_parent(attribute)) == "autoFilter"
-      if (min(position$column) > columns || max(position$row) < start - as.integer(is_filter) ||
-          min(position$row) > start || max(position$row) >= last) return(part)
-      paste0(bounds[[1]], ":", xlsx_column(max(position$column)), last)
-    }, character(1))
-    xml2::xml_set_attr(xml2::xml_parent(attribute), xml2::xml_name(attribute), paste(updated, collapse = " "))
+xlsx_column <- function(number) {
+  result <- ""
+  while (number > 0) {
+    result <- paste0(LETTERS[(number - 1) %% 26 + 1], result)
+    number <- (number - 1) %/% 26
   }
+  result
 }
 
-#' Populate a copy of a template worksheet
-#' @param source Source worksheet descriptor returned by [xlsx_sheet()].
-#' @param pattern Empty template worksheet descriptor returned by [xlsx_sheet()].
-#' @param definition Model sheet definition with fields and physical layout.
-#' @param rows Selected physical source rows for table layouts; unused for fixed cells.
-#' @param destination Path of the extracted worksheet XML part to write.
-#' @param number_formats Callbacks returned by [split_number_formats()].
-#' @return The invisible result of [xml2::write_xml()].
-#' @details Copies fixed fields or compacts selected table records from the model
-#'   start row. New rows inherit the first template data row where available.
-#'   Numeric date/datetime values receive their source number format. Other
-#'   template styles are retained, standard ranges are extended, and the sheet
-#'   dimension is updated. Source and template descriptors are not modified.
-#'   Formula-bearing fixed template fields and excessive output extents raise errors.
+#' Recognize an absent or empty cell value
+#' @param value `NULL` or a cell-value list containing a scalar `value` string.
+#' @return Whether the value is absent or the string is empty.
+#'   Whitespace is retained and is not considered blank.
 #' @keywords internal
-write_split_sheet <- function(source, pattern, definition, rows, destination, number_formats) {
-  document <- xml2::read_xml(as.character(pattern$document), options = "NONET")
-  sheet_data <- xlsx_one(document, "sheetData")
-  if (inherits(sheet_data, "xml_missing")) stop("Template worksheet has no sheetData", call. = FALSE)
-  existing <- xlsx_nodes(sheet_data, "row")
-  row_numbers <- as.integer(xml2::xml_attr(existing, "r"))
-  if (anyNA(row_numbers) || anyDuplicated(row_numbers)) stop("Invalid template rows", call. = FALSE)
-  # Keep lookups local to this output; never mutate the reusable template tree.
-  row_cache <- new.env(parent = emptyenv())
-  for (i in seq_along(existing)) row_cache[[as.character(row_numbers[[i]])]] <- existing[[i]]
-  prototype <- NULL
-  if (definition$layout$kind == "table") {
-    template_rows <- xlsx_nodes(xlsx_one(pattern$document, "sheetData"), "row")
-    index <- match(as.character(definition$layout$start_row), xml2::xml_attr(template_rows, "r"))
-    if (!is.na(index)) prototype <- template_rows[[index]]
-  }
-  # Return the output XML row at the one-based number, creating it in order.
-  # Clone the template prototype when present; update row_cache and row_numbers.
-  get_row <- function(number) {
-    key <- as.character(number)
-    if (exists(key, row_cache, inherits = FALSE)) return(row_cache[[key]])
-    # Existing template rows are usually a prefix. Insert before the next row if needed.
-    after <- which(row_numbers > number)
-    node <- if (is.null(prototype)) xml2::read_xml(paste0('<row r="', number, '"/>')) else prototype
-    if (length(after)) {
-      next_row <- min(row_numbers[after])
-      result <- xml2::xml_add_sibling(row_cache[[as.character(next_row)]], node, .where = "before")
-    } else result <- xml2::xml_add_child(sheet_data, node)
-    xml2::xml_set_attr(result, "r", key)
-    for (cell in xlsx_nodes(result, "c")) {
-      address <- xml2::xml_attr(cell, "r")
-      xml2::xml_set_attr(cell, "r", paste0(sub("[0-9]+$", "", address), key))
-    }
-    row_cache[[key]] <- result
-    row_numbers <<- c(row_numbers, number)
-    result
-  }
-  # Write a cell-value list at one-based coordinates, inserting a cell in order.
-  # Mutates the output XML tree, applying source number formats to temporal fields.
-  put <- function(row, column, value, field) {
-    node <- get_row(row)
-    address <- paste0(xlsx_column(column), row)
-    cells <- xlsx_nodes(node, "c")
-    addresses <- xml2::xml_attr(cells, "r")
-    index <- match(address, addresses)
-    if (is.na(index)) {
-      later <- which(xlsx_address(addresses)$column > column)
-      cell <- xml2::read_xml(paste0('<c r="', address, '"/>'))
-      if (length(later)) cell <- xml2::xml_add_sibling(cells[[later[[1]]]], cell, .where = "before")
-      else cell <- xml2::xml_add_child(node, cell)
-    } else cell <- cells[[index]]
-    write_cell_value(cell, value)
-    if (!xlsx_blank(value) && value$type == "n" && field$type %in% c("date", "datetime"))
-      number_formats$apply(cell, value$style)
-  }
-  if (definition$layout$kind == "cells") {
-    for (field in definition$fields) {
-      index <- match(field$location, pattern$addresses)
-      if (!is.na(index) && pattern$formulas[[index]])
-        stop("Template fixed field contains a formula: ", field$location, call. = FALSE)
-      address <- xlsx_address(field$location)
-      put(address$row, address$column, xlsx_value(source, address$row, address$column), field)
-    }
-  } else {
-    start <- definition$layout$start_row
-    last <- start + length(rows) - 1L
-    if (last > 1048576 || (!is.null(definition$layout$row_count) && last > definition$layout$row_count))
-      stop("Output exceeds declared worksheet extent", call. = FALSE)
-    for (i in seq_along(rows)) {
-      for (column in seq_along(definition$fields)) {
-        value <- xlsx_value(source, rows[[i]], column)
-        if (!xlsx_blank(value)) put(start + i - 1L, column, value, definition$fields[[column]])
-      }
-    }
-    extend_sheet_ranges(document, start, last, length(definition$fields))
-  }
-  dimension <- xlsx_one(document, "dimension")
-  if (!inherits(dimension, "xml_missing")) {
-    cells <- xml2::xml_find_all(sheet_data, "./*[local-name()='row']/*[local-name()='c']", ns = character())
-    positions <- xlsx_address(xml2::xml_attr(cells, "r"))
-    if (length(cells)) xml2::xml_set_attr(dimension, "ref",
-      paste0("A1:", xlsx_column(max(positions$column)), max(positions$row)))
-  }
-  xml2::write_xml(document, destination)
+xlsx_blank <- function(value) {
+  is.null(value) || !nzchar(value$value)
+}
+
+#' Validate a required text argument
+#' @param value Candidate scalar character value; missing or empty text is rejected.
+#' @param name Argument name used in the error message.
+#' @return The unchanged string. Invalid arguments raise an error.
+#' @keywords internal
+tool_text <- function(value, name) {
+  if (!is.character(value) || length(value) != 1L || is.na(value) || !nzchar(value))
+    stop(name, " must be a non-empty string", call. = FALSE)
+  value
 }

@@ -7,30 +7,47 @@ vignette: >
   %\VignetteEncoding{UTF-8}
 ---
 
-## Split one workbook into several
+Read the [Terminology](terminology.html) for the concepts used in this guide.
 
-A model declares fixed-cell metadata, table layouts, primary keys, and parent keys.
+
+## About this guide
+
+This guide splits a populated form into separate forms using the root records and their related data.
+
+It also shows how to write typed R data into an empty form.
+
+## Split a form
+
+A form model declares fixed-cell metadata, table layouts, primary keys, and parent keys.
 The caller supplies a structurally validated source workbook and an empty template for the same model version.
 
-The bundled survey model has a composite primary key `[station, observation_id]` on `Observations`.
+The bundled survey form model has a composite primary key `[station, observation_id]` on `Observations`.
 Each output contains one observation and all fixed metadata, even when identifiers repeat across stations.
 
-```{r split, eval=FALSE}
+```{r split}
 library(form.tools)
-examples <- system.file("examples", package = "form.model")
-model <- form.model::load_form_model("survey", examples)
-outputs <- split_form_workbook(
-  file.path(examples, "survey.xlsx"), model,
+# Locate the installed example resources.
+example_directory <- system.file("examples", "survey", package = "form.model")
+# Load the requested form model.
+form_model_definition <- form.model::read_form_model(file.path(example_directory, "form.yaml"))
+# Choose a temporary location for this example.
+output_directory <- tempfile("survey-by-observation-")
+# Split the input form into one output per root record.
+split_manifest <- split_form_workbook(
+  file.path(example_directory, "form.xlsx"), form_model_definition,
   root_sheet = "Observations",
-  template = file.path(examples, "survey-empty.xlsx"),
-  directory = "survey-by-observation",
+  template = file.path(example_directory, "form-empty.xlsx"),
+  directory = output_directory,
   shared_sheets = "Equipment"
 )
-outputs
+# Display the output paths and their root record keys.
+split_manifest
+# Remove the temporary files created by this example.
+unlink(output_directory, recursive = TRUE)
 ```
 
 Output filenames retain the original basename and append the root primary-key values in model order.
-For example, `survey.xlsx` with key `[ST01, OBS-001]` produces `survey_ST01_OBS-001.xlsx`.
+For example, `form.xlsx` with key `[ST01, OBS-001]` produces `form_ST01_OBS-001.xlsx`.
 Invalid filename characters become `_`; case-insensitive collisions and names exceeding 255 bytes are rejected.
 The returned manifest maps each file to its source row and primary-key components.
 Root key values are never interpreted as filesystem paths.
@@ -70,3 +87,76 @@ R does not recalculate formulas.
 The output directory must be new, with an existing parent directory.
 All output files are prepared before the directory is published; failures leave no partial output directory.
 Neither the input workbook nor the template is modified.
+
+## Write a form
+
+Supply one data frame per modeled sheet, with a column for every field. Match sheet and field names exactly.
+
+Column and sheet order may differ from the form model. Fixed-cell sheets need one row; tables may be empty.
+
+```{r write}
+# Locate the installed survey resources.
+writer_example_directory <- system.file("examples", "survey", package = "form.model")
+# Load the form model that defines the destination cells and columns.
+writer_form_model <- form.model::read_form_model(file.path(writer_example_directory, "form.yaml"))
+# Prepare the single metadata record with a Date column.
+writer_metadata <- data.frame(submission = "001", date = as.Date("2026-11-11"),
+  contact_email = "survey@example.org", comment = "Example survey")
+# Prepare one observation with numeric, logical and UTC date-time columns.
+writer_observations <- data.frame(station = "ST01", count = 2L, length = 1.5, unit = "m",
+  active = TRUE, observed_at = as.POSIXct("2026-11-11 12:00:00", tz = "UTC"),
+  latitude = -12.5, longitude = 34, observation_id = "OBS-001", quality = 1L, observer = "ALICE")
+# Supply the field columns even when there are no sample records.
+writer_samples <- data.frame(station = character(), observation_id = character(), sample_no = integer(),
+  minimum_length = numeric(), maximum_length = numeric(), unit = character())
+# Supply an empty measurements table with its declared field types.
+writer_measurements <- data.frame(station = character(), observation_id = character(),
+  sample_no = integer(), reading_no = integer(), value = numeric())
+# Supply an empty equipment table.
+writer_equipment <- data.frame(equipment_id = character(), serial = character(), label = character())
+# Supply an empty notes table.
+writer_notes <- data.frame(station = character(), observation_id = character(), category = character(),
+  count = integer(), confirmed = logical())
+# Associate each data frame with its modeled sheet name.
+writer_sheet_data <- list(Metadata = writer_metadata, Observations = writer_observations,
+  Samples = writer_samples, Measurements = writer_measurements, Equipment = writer_equipment,
+  Notes = writer_notes)
+# Choose a new output path in an existing directory.
+writer_output_path <- tempfile("survey-written-", fileext = ".xlsx")
+# Populate the empty form without modifying the template.
+write_form_workbook(writer_sheet_data, writer_form_model,
+  template = file.path(writer_example_directory, "form-empty.xlsx"), path = writer_output_path)
+# Remove the form created by this example.
+unlink(writer_output_path)
+```
+
+Use character columns for text, logical columns for Booleans, `Date` for dates and `POSIXct` for date-times.
+
+Numeric fields accept integer or numeric columns. Integer fields reject fractional values; missing values stay blank.
+
+Text remains literal, including leading zeros and values starting with `=`. Input record order is preserved.
+
+The writer uses the template's Excel date system and writes date-times in UTC.
+
+Select the matching template version. Data regions must be empty; targeted formulas and merged cells are rejected.
+
+Standard validation and conditional-formatting ranges expand with new rows; print areas remain unchanged.
+
+Existing output files are never overwritten. Publication requires a filesystem supporting hard links.
+
+The writer checks names, R types and writable positions. It does not check requiredness, keys or reference values.
+
+Validate the populated form separately before treating it as a valid submission.
+
+## Download the example files
+
+```{r resource-links-1, echo=FALSE, results="asis"}
+# Use relative website links and installed resources in the package guide.
+if (identical(Sys.getenv("IN_PKGDOWN"), "true")) {
+  # Render links relative to the website article.
+  cat("- [Form model \u2014 form.yaml](../examples/survey/form.yaml)\n- [Populated form \u2014 form.xlsx](../examples/survey/form.xlsx)\n- [Empty form \u2014 form-empty.xlsx](../examples/survey/form-empty.xlsx)\n")
+} else {
+  # Point readers to the installed package resources.
+  cat("Find these files with `system.file(\"examples\", \"survey\", package = \"form.model\")`.\n")
+}
+```

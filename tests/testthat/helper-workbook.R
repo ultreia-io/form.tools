@@ -2,9 +2,9 @@
 #' @return Paths and the checked model supplied by form.model.
 survey_example <- function() {
   # Resolve one filename from the installed example directory.
-  resource <- function(name) form.model::form_resource(paste0('examples/', name), 'form.model')
-  list(source = resource('survey.xlsx'), template = resource('survey-empty.xlsx'),
-       model = form.model::read_form_model(resource('survey-form.yaml')))
+  resource <- function(name) form.model::form_resource(paste0('examples/survey/', name), 'form.model')
+  list(source = resource('form.xlsx'), template = resource('form-empty.xlsx'),
+       model = form.model::read_form_model(resource('form.yaml')))
 }
 
 #' Read example records independently of the splitter

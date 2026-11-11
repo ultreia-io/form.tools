@@ -1,3 +1,5 @@
+# Public operations ---------------------------------------------------------
+
 #' Split a workbook by the primary key of a root sheet
 #'
 #' Produce one workbook per root record using an empty, version-matched template.

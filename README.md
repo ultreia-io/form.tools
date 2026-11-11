@@ -1,110 +1,69 @@
 # form.tools
 
-[![Build](https://github.com/ultreia-io/form.tools/actions/workflows/Build.yaml/badge.svg?branch=develop)](https://github.com/ultreia-io/form.tools/actions/workflows/Build.yaml?query=branch%3Adevelop)
-[![Test Coverage](https://github.com/ultreia-io/form.tools/actions/workflows/TestCoverage.yaml/badge.svg?branch=main)](https://github.com/ultreia-io/form.tools/actions/workflows/TestCoverage.yaml?query=branch%3Amain)
-[![Coverage](https://img.shields.io/badge/dynamic/xml?url=https%3A%2F%2Fultreia-io.github.io%2Fform.tools%2Fcoverage%2Fcoverage.xml&query=round%28%2Fcoverage%2F%40line-rate+%2A+1000%29+div+10&label=coverage&suffix=%25&color=brightgreen)](https://ultreia-io.github.io/form.tools/articles/coverage.html)
-[![Website](https://img.shields.io/badge/website-documentation-blue)](https://ultreia-io.github.io/form.tools/)
-[![Latest
-release](https://img.shields.io/github/v/release/ultreia-io/form.tools?display_name=tag&sort=semver)](https://github.com/ultreia-io/form.tools/releases/latest)
-[![License](https://img.shields.io/github/license/ultreia-io/form.tools)](https://github.com/ultreia-io/form.tools/blob/main/LICENSE)
+[![Build](https://img.shields.io/github/actions/workflow/status/ultreia-io/form.tools/Build.yaml?branch=develop&label=Build&logo=githubactions&logoColor=white)](https://github.com/ultreia-io/form.tools/actions/workflows/Build.yaml?query=branch%3Adevelop)
+[![Website](https://img.shields.io/badge/website-documentation-blue?logo=readthedocs&logoColor=white)](https://ultreia-io.github.io/form.tools/index.html)
+[![License](https://img.shields.io/badge/license-LGPL--2.1-blue?logo=gnu&logoColor=white)](https://github.com/ultreia-io/form.tools/blob/main/LICENSE)
 
-Neutral, model-driven workbook operations using form definitions and
-matching workbook templates.
+[![Latest release](https://img.shields.io/badge/dynamic/json?url=https%3A%2F%2Fapi.github.com%2Frepos%2Fultreia-io%2Fform.tools%2Freleases%2Flatest&query=%24.tag_name&label=Latest%20release&color=blue&logo=github&logoColor=white)](https://github.com/ultreia-io/form.tools/releases/latest)
+![CRAN release](https://img.shields.io/badge/dynamic/json?url=https%3A%2F%2Fcrandb.r-pkg.org%2Fform.tools&query=%24.Version&label=CRAN%20release&color=brightgreen&logo=r&logoColor=white)
 
-**Split structurally validated workbooks using model-defined keys and an empty template.**
+[![Coverage develop](https://img.shields.io/codecov/c/github/ultreia-io/form.tools/develop?label=coverage%20develop&logo=codecov)](https://app.codecov.io/gh/ultreia-io/form.tools/tree/develop)
+[![Coverage main](https://img.shields.io/codecov/c/github/ultreia-io/form.tools/main?label=coverage%20main&logo=codecov)](https://app.codecov.io/gh/ultreia-io/form.tools/tree/main)
+
+## About this project
+
+> `form.tools` performs operations on Excel forms using their form models.
+
+Read the [Terminology](https://ultreia-io.github.io/form.tools/articles/terminology.html) for the concepts used throughout this documentation.
+
+A form is an Excel workbook used to collect data. Its form model describes the expected structure and rules in YAML.
+
+The writer fills an empty form with typed R data, placing values by the field names defined in the form model.
+
+The splitter creates one form per root record, selecting related records through primary and parent keys.
+
+Both operations preserve template formatting and supporting workbook parts. Source files remain unchanged.
+
+Consumers supply the form model, matching empty form and data to write or split.
+
+## Related packages
+
+- [form.model](https://github.com/ultreia-io/form.model) defines forms, their layouts and constraints.
+- [form.references](https://github.com/ultreia-io/form.references) loads reference catalogues and resolves lookups.
+- [form.validation](https://github.com/ultreia-io/form.validation) validates submitted forms and produces reports.
 
 ## Installation
 
-Install the latest release directly from GitHub:
+The first CRAN submission is pending. Once available, install the latest version from CRAN:
 
 ``` r
-install.packages("pak") # Once
+# Install form.tools from CRAN.
+install.packages("form.tools")
+```
+
+Alternatively, install the latest GitHub release:
+
+``` r
+# Install the package installer once.
+install.packages("pak")
+# Install the latest released form.tools package.
 pak::pak("ultreia-io/form.tools@*release")
 ```
 
 `pak` downloads the package and installs its dependencies automatically.
 
-Install the development version:
+For the development version:
 
 ``` r
+# Install form.tools from the development branch.
 pak::pak("ultreia-io/form.tools@develop")
 ```
 
-## Start here
+## Getting started
 
-``` r
-library(form.tools)
-examples <- system.file("examples", package = "form.model")
-model <- form.model::load_form_model("survey", examples)
-
-outputs <- split_form_workbook(
-  path = file.path(examples, "survey.xlsx"),
-  model = model,
-  root_sheet = "Observations",
-  template = file.path(examples, "survey-empty.xlsx"),
-  directory = "survey-by-observation",
-  shared_sheets = "Equipment"
-)
-outputs
-```
-
-The bundled example produces three workbooks, each containing one observation, its related records, and shared data.
-For your own workbooks, the source must already pass structural validation.
-The template must match the model version and use the same Excel date system as the source.
-
-The output directory must not exist. Each root record produces one workbook, in source order.
-The returned manifest includes the output path, source row, and root key components.
-
-## Contract
-
-- Consume neutral form definitions through the public `form.model` API.
-- Split a workbook by a caller-selected root sheet and its primary key.
-- Follow model-defined parent keys to select related records.
-- Populate a matching empty template for each output workbook.
-- Reject missing or duplicate primary keys and missing parent keys before writing outputs.
-- Keep domain definitions and templates in consuming packages.
-
-## Workbook defaults and conventions
-
-Fixed-cell fields are copied into every output. Descendant tables retain their original row order.
-Tables outside the selected hierarchy must be explicitly listed in `shared_sheets` to copy them in full.
-
-Unmodeled template sheets are retained unchanged. Unmodeled source sheets are not copied.
-Output filenames combine the original basename and root primary-key values in model order:
-`<original basename>_<key components>.xlsx`. Components are separated by `_`.
-Invalid filename characters become `_`; case-insensitive collisions and names exceeding 255 bytes are rejected.
-
-Template table data regions must be empty, including formulas.
-Additional rows inherit the first template data row's styles and height.
-Standard dropdown and conditional-formatting ranges grow with the output data.
-
-Source formulas are copied as cached values. Excel errors and uncached formulas in modeled fields are rejected.
-Template formulas outside modeled fields are retained, with recalculation requested when Excel opens the output.
-R does not recalculate formulas.
-
-Excel tables and merged cells in template data regions are not supported in this first implementation.
-Fixed print areas and extended Excel validation ranges are preserved without expansion.
-
-Outputs are prepared in a temporary sibling directory and published together after all workbooks are written.
-Source and template files are never modified; existing outputs are never overwritten.
+Follow the [Getting started guide](https://ultreia-io.github.io/form.tools/articles/form.tools.html) for the runnable survey example and downloadable files.
 
 ## Guides
 
-- [Getting
-  started](https://ultreia-io.github.io/form.tools/articles/form.tools.html)
-- [API
-  reference](https://ultreia-io.github.io/form.tools/reference/index.html)
+- [API reference](https://ultreia-io.github.io/form.tools/reference/index.html)
 - [Contributing](https://ultreia-io.github.io/form.tools/CONTRIBUTING.html) and [maintenance](https://ultreia-io.github.io/form.tools/DEVELOPMENT.html)
-
-## Boundaries
-
-This package performs neutral workbook operations.
-
-Form definitions belong in `form.model` and its consuming packages.
-Submitted-data validation belongs in `form.validation`.
-Domain-specific templates and rules remain outside this package.
-
-## License
-
-LGPL-2.1. See
-[LICENSE](https://github.com/ultreia-io/form.tools/blob/develop/LICENSE).

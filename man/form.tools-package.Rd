@@ -7,6 +7,7 @@
 \title{Neutral model-driven workbook tools}
 \description{
 Split validated workbooks using model-defined keys and empty templates.
+Write typed data into empty forms using model-defined field names and layouts.
 Preserve template formatting and retain related records across worksheets.
 Domain-specific definitions and templates belong to consuming packages.
 }
@@ -20,11 +21,11 @@ Useful links:
 
 }
 \author{
-\strong{Maintainer}: Tony Chemit \email{dev@tchemit.fr}
+\strong{Maintainer}: Tony Chemit \email{dev@tchemit.fr} (\href{https://orcid.org/0009-0007-1802-5256}{ORCID}) (URL: https://ultreia.io) [copyright holder]
 
 Authors:
 \itemize{
-  \item Tony Chemit \email{dev@tchemit.fr}
+  \item Tony Chemit \email{dev@tchemit.fr} (\href{https://orcid.org/0009-0007-1802-5256}{ORCID}) (URL: https://ultreia.io) [copyright holder]
 }
 
 }

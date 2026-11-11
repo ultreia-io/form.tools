@@ -1,25 +1,26 @@
 Package: form.tools
 Title: Neutral Model-Driven Workbook Tools
-Version: 0.1.1
+Version: 0.2.0
 Authors@R:
-    person("Tony", "Chemit", role = c("aut", "cre"),
-           email = "dev@tchemit.fr")
-Description: Splits structurally validated workbooks by model-defined primary
-    and parent keys. Populates matching empty workbook templates while retaining
-    their styles and supporting workbook parts. Keeps domain definitions and
-    reference data outside the workbook transformation layer.
+    person("Tony", "Chemit", role = c("aut", "cre", "cph"),
+           email = "dev@tchemit.fr",
+           comment = c(ORCID = "0009-0007-1802-5256", URL = "https://ultreia.io"))
+Description: Provides tools for working with Excel workbooks using form
+    definitions supplied by 'form.model'. Splits structurally validated workbooks
+    by primary and parent keys and populates matching empty templates while
+    preserving their styles and supporting workbook parts. Keeps domain
+    definitions and reference data separate from workbook operations.
 License: LGPL-2.1
 URL: https://ultreia-io.github.io/form.tools/,
     https://github.com/ultreia-io/form.tools
 BugReports: https://github.com/ultreia-io/form.tools/issues
 Encoding: UTF-8
 Depends: R (>= 4.1.0)
-Imports: form.model (>= 0.5.1), xml2, zip
-Remotes: ultreia-io/form.model@v0.5.1
+Imports: form.model (>= 0.6.2), xml2, zip
 Suggests: knitr, readxl, rmarkdown, testthat (>= 3.0.0), withr
 VignetteBuilder: knitr
 Roxygen: list(markdown = TRUE)
 Config/testthat/edition: 3
 Config/Needs/coverage: covr, xml2
-Config/Needs/website: pkgdown, covr, htmltools, xml2
+Config/Needs/website: pkgdown
 Config/roxygen2/version: 8.1.1
