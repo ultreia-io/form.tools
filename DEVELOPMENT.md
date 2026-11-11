@@ -4,56 +4,60 @@
 
 ## Code organization
 
-| Directory    | Responsibility                                    |
-| ------------ | ------------------------------------------------- |
-| `R/`         | Package documentation and workbook APIs.          |
-| `inst/`      | Future installed resources and neutral examples.  |
-| `man/`       | Generated roxygen documentation.                  |
-| `tests/`     | Split behaviour tests and test helpers.           |
-| `tools/`     | Coverage and pkgdown site generation.             |
-| `vignettes/` | Package guides and coverage article.              |
-| `.github/`   | Issue templates, CI, release, and site workflows. |
+The files organize functions in one package namespace. You do not source each file separately.
 
-`split.R` selects records and manages output publication.
-`workbook.R` reads XLSX parts, resolves values and keys, and populates template worksheets
-while preserving other workbook parts.
+| File                   | Responsibility                                                          |
+| ---------------------- | ----------------------------------------------------------------------- |
+| `split.R`              | Select related records and publish split workbooks.                     |
+| `write.R`              | Encode typed data and write forms using model-defined field names.      |
+| `workbook.R`           | Read XLSX parts and populate templates while preserving workbook parts. |
+| `form.tools-package.R` | Provide package-level documentation.                                    |
 
 Workbook operations consume `form.model` through its public API.
 `xml2` reads and writes worksheet XML; `zip` assembles output XLSX archives.
 
 ## Local verification
 
-Run from the package root with development dependencies installed:
+Run from the package root with development dependencies and LaTeX installed:
 
 ```sh
-Rscript -e 'roxygen2::roxygenise()'
-mkdir -p build
-(cd build && R CMD build --no-manual ..)
-package_version=$(Rscript -e 'cat(read.dcf("DESCRIPTION")[1, "Version"])')
-R CMD check --no-manual --output=build "build/form.tools_${package_version}.tar.gz"
-Rscript tools/build-site.R
+Rscript tools/check.R
 ```
 
-The split tests use the installed survey model, source workbook and empty template from `form.model`.
+This generates documentation, runs tests, builds and checks the archive with `--as-cran`, then builds the website.
 
-The site includes a native coverage page at `docs/articles/coverage.html`, using the shared theme and navigation.
-The tests cover composite keys, metadata, template preservation and rejection of unsafe split inputs.
+Local and CI checks share the CRAN mirror settings in `tools/check.Renviron`. All CRAN checks remain enabled.
 
-Coverage CSV and XML stay in `docs/coverage/`. Archives and check output stay in `build/`.
+The **Build** workflow measures coverage with `covr` on Linux after successful checks and uploads it to Codecov.
 
-Run `Rscript tools/coverage.R` to refresh coverage data alone; rebuild the site to refresh its page.
+The README coverage badges link to the Codecov report. Website builds do not run coverage checks.
+
+Archives and check output stay in `build/`.
 
 `roxygen2`, `rcmdcheck`, and `pkgload` are development tools, not runtime dependencies.
 
 Review coverage gaps for missing behaviour. Check installed resources, runnable examples, and website navigation.
 
-## Release
+## Website
+
+Run from the package root with website dependencies installed:
+
+``` r
+# Prepare example downloads and the licence from their source files.
+source("tools/prepare-site-assets.R")
+# Build the website with pkgdown.
+pkgdown::build_site()
+```
+
+The preparation replaces ignored `pkgdown/assets/` copies; the survey files remain in `form.model`'s `inst/examples/`.
+
+## GitHub Release
 
 1. **Prepare the release on `develop`:**
 
-   1. **Prepare the release files:** update the version in `DESCRIPTION`, finalize `NEWS.md` and documentation.
+   1. **Prepare the release files:** update the version in `DESCRIPTION`, finalize `NEWS.md`, `cran-comments.md` and documentation.
    2. **Perform the [local checks](#local-verification).**
-   3. **Commit the changes:** use `[form.tools] Release <version>`, for example `[form.tools] Release 0.1.0`.
+   3. **Commit the changes:** use `[form.tools] Release <version>`.
    4. **Push the release commit.**
 
 2. **Start the release on GitHub:**
@@ -66,9 +70,40 @@ Review coverage gaps for missing behaviour. Check installed resources, runnable 
 
    1. **Wait for the checks:** all checks on the release PR must be green.
    2. **Merge:** click **Merge pull request**, then **Confirm merge**.
+   3. Merging automatically starts the **Publish Release** workflow.
 
-**Publish Release** publishes the package, checksum and documentation automatically.
+The **Publish Release** workflow:
+
+1. Publishes the package archive, checksum and documentation.
+2. **Submits the same archive to CRAN**.
+
+## Manual CRAN submission
+
+Use this fallback only if the release has not already been submitted by CI.
+
+Start from a clean working tree. Replace `version` with the release version to submit.
+
+```sh
+# Fetch the published release tags.
+git fetch origin --tags
+# Check out the release tag.
+git switch --detach version
+```
+
+Run these commands in R from the package root, with `devtools` installed.
+
+```r
+# Build and run R CMD check --as-cran, including the PDF manual and incoming checks.
+devtools::check(args = "--as-cran", manual = TRUE, remote = TRUE, error_on = "warning")
+
+# After resolving errors and warnings and reviewing NOTES, submit the release to CRAN.
+devtools::submit_cran()
+```
+
+This manual route rebuilds from the release tag. CI submits the existing GitHub archive unchanged.
+
+Confirm CRAN's email, then wait for its checks and response.
 
 ## License
 
-LGPL-2.1. See the [license text](https://www.gnu.org/licenses/old-licenses/lgpl-2.1.html).
+LGPL-2.1. See [LICENSE](LICENSE).

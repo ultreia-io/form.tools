@@ -4,25 +4,30 @@ template:
   light-switch: true
 reference:
   - title: Workbook operations
-    contents: [split_form_workbook]
+    contents: [split_form_workbook, write_form_workbook]
   - title: Package
     contents: [form.tools-package]
 articles:
   - title: Guides
     navbar: Guides
-    contents: [form.tools]
-  - title: Development
-    contents: [articles/coverage]
+    contents: [terminology, form.tools]
 navbar:
   structure:
     left: [intro, reference, articles, news, coverage, community]
     right: [search, github, lightswitch]
   components:
+    articles:
+      text: Articles
+      menu:
+        - text: Terminology
+          href: articles/terminology.html
+        - text: Getting started
+          href: articles/form.tools.html
     coverage:
       text: Coverage
-      href: articles/coverage.html
+      href: https://app.codecov.io/gh/ultreia-io/form.tools
     intro:
-      text: Get started
+      text: Getting started
       href: articles/form.tools.html
     community:
       text: Community
@@ -48,4 +53,4 @@ footer:
   components:
     company: "[ultreia.io](https://ultreia.io/)"
     copyright: "· © 2026"
-    license: "· [License: LGPL-2.1](https://github.com/ultreia-io/form.tools/blob/main/LICENSE)"
+    license: "· [License: LGPL-2.1](https://ultreia-io.github.io/form.tools/LICENSE)"

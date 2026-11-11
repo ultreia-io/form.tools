@@ -1,0 +1,28 @@
+---
+title: "Terminology"
+output: rmarkdown::html_vignette
+vignette: >
+  %\VignetteIndexEntry{Terminology}
+  %\VignetteEngine{knitr::rmarkdown}
+  %\VignetteEncoding{UTF-8}
+---
+
+## Main concepts
+
+| Term         | Meaning                                                                      |
+| ------------ | ---------------------------------------------------------------------------- |
+| Form         | An Excel workbook used to collect data.                                      |
+| Form model   | A versioned definition of a form’s sheets, fields, layout and constraints.   |
+| Consumer     | A package, tool or application that uses the package’s operations.           |
+
+## Form operations
+
+| Term              | Meaning                                                                           |
+| ----------------- | --------------------------------------------------------------------------------- |
+| Input form        | The populated form supplied to a workbook operation.                              |
+| Root sheet        | The sheet whose records determine the output forms.                               |
+| Root record       | A record selected by its complete primary key in the root sheet.                  |
+| Related record    | A record connected to a selected parent record through a declared parent key.     |
+| Shared sheet      | A table explicitly copied in full into every output form.                         |
+| Output form       | An Excel form produced by the operation.                                          |
+| Output manifest   | The returned mapping of output paths, source rows and root key values.            |
