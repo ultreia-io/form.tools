@@ -85,7 +85,7 @@ jobs:
           sha256sum "$RELEASE_ARCHIVE" | cmp - SHA256SUMS
 
       - name: Upload checked coverage for the merged commit
-        uses: codecov/codecov-action@v7.0.0
+        uses: codecov/codecov-action@v7.1.1
         with:
           token: ${{ secrets.CODECOV_TOKEN }}
           slug: ${{ github.repository }}
