@@ -16,11 +16,12 @@ URL: https://ultreia-io.github.io/form.tools/,
 BugReports: https://github.com/ultreia-io/form.tools/issues
 Encoding: UTF-8
 Depends: R (>= 4.1.0)
-Imports: form.model (>= 0.6.2), xml2, zip
-Suggests: knitr, readxl, rmarkdown, testthat (>= 3.0.0), withr
+Imports: DBI, db.tools (>= 0.1.2), form.model (>= 0.6.2), xml2, zip
+Suggests: knitr, readxl, rmarkdown, RSQLite, testthat (>= 3.0.0), withr
+Remotes: ultreia-io/db.tools@0.1.2
 VignetteBuilder: knitr
 Roxygen: list(markdown = TRUE)
 Config/testthat/edition: 3
 Config/Needs/coverage: covr, xml2
-Config/Needs/website: pkgdown
+Config/Needs/website: pkgdown, RSQLite, zip
 Config/roxygen2/version: 8.1.1
