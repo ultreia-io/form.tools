@@ -1,24 +1,23 @@
 name: Build
 
-# Check development pushes and PRs. Publish Release checks the main merge through workflow_call.
+# Check development changes on Linux. Manual checks and Start Release reuse the full matrix.
 on:
   push:
     branches:
       - develop
       - 'feature/**'
   pull_request:
-  workflow_dispatch:
-    inputs:
-      ref:
-        description: Git branch, tag, or commit to build
-        required: false
-        type: string
   workflow_call:
     inputs:
       ref:
         description: Git branch, tag, or commit to build
-        required: false
         type: string
+      all_platforms:
+        description: Check all four supported R environments
+        type: boolean
+      release:
+        description: Save the checked Linux source archive for publication
+        type: boolean
 
 # Package verification reads sources and dependencies; it does not publish or modify the repository.
 permissions:
@@ -26,6 +25,12 @@ permissions:
 
 jobs:
   check:
+    # Same-repository development branches already run on push. Release PRs are checked before opening.
+    if: >-
+      github.event_name != 'pull_request' ||
+      !(github.event.pull_request.head.repo.full_name == github.repository &&
+        (github.head_ref == 'develop' || startsWith(github.head_ref, 'feature/') ||
+          startsWith(github.head_ref, 'release/')))
     name: ${{ matrix.config.os }} (${{ matrix.config.r }})
     runs-on: ${{ matrix.config.os }}
     # Linux release: R is preinstalled in Rocker; setup-r installs R-devel on the Ubuntu runner.
@@ -40,19 +45,13 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        config:
-          - os: ubuntu-latest
-            r: release
-            container: rocker/r-ver:latest
-          - os: macos-latest
-            r: release
-            container: ""
-          - os: windows-latest
-            r: release
-            container: ""
-          - os: ubuntu-latest
-            r: devel
-            container: ""
+        config: >-
+          ${{ fromJSON(inputs.all_platforms && '[
+            {"os":"ubuntu-latest","r":"release","container":"rocker/r-ver:latest"},
+            {"os":"ubuntu-latest","r":"devel","container":""},
+            {"os":"macos-latest","r":"release","container":""},
+            {"os":"windows-latest","r":"release","container":""}
+          ]' || '[{"os":"ubuntu-latest","r":"release","container":"rocker/r-ver:latest"}]') }}
 
     env:
       # Use the runner's Homebrew metadata without updating or cleaning unrelated tools.
@@ -63,11 +62,13 @@ jobs:
       PKG_METADATA_CACHE_DIR: ${{ github.workspace }}/.github/pak-metadata
       # Authenticate GitHub dependency downloads using the workflow token.
       GITHUB_PAT: ${{ secrets.GITHUB_TOKEN }}
-      # Keep source references and enable CRAN incoming checks, including remote checks.
+      # Keep source references and check the GitHub package with its GitHub dependency.
       R_KEEP_PKG_SOURCE: yes
       _R_CHECK_SYSTEM_CLOCK_: 'false'
+      # Include CRAN incoming checks in every build.
       _R_CHECK_CRAN_INCOMING_: 'true'
-      _R_CHECK_CRAN_INCOMING_REMOTE_: 'true'
+      # Re-enable remote checks once db.tools is available from CRAN and the articles are deployed.
+      _R_CHECK_CRAN_INCOMING_REMOTE_: 'false'
       # Share CRAN mirror settings with local checks.
       R_CHECK_ENVIRON: ${{ github.workspace }}/tools/check.Renviron
 
@@ -89,7 +90,7 @@ jobs:
         if: matrix.config.container != ''
         run: |
           apt-get update
-          apt-get install -y --no-install-recommends git qpdf ghostscript lsb-release sudo texinfo xz-utils curl gpg tidy
+          apt-get install -y --no-install-recommends git qpdf ghostscript lsb-release sudo texinfo xz-utils curl gpg tidy libssl-dev
 
       # Prefer modern HTML Tidy over the older version supplied by macOS.
       - name: Install HTML Tidy on macOS
@@ -107,7 +108,7 @@ jobs:
       - name: Set up R
         if: matrix.config.r != 'devel'
         id: setup-r
-        uses: r-lib/actions/setup-r@v2.12.1
+        uses: r-lib/actions/setup-r@v2.14.0
         with:
           r-version: ${{ steps.apt-cache.outputs.r-version || matrix.config.r }}
           install-r: ${{ runner.os == 'macOS' }}
@@ -121,7 +122,7 @@ jobs:
 
       # Pandoc is needed to render the package vignettes.
       - name: Set up Pandoc
-        uses: r-lib/actions/setup-pandoc@v2.12.1
+        uses: r-lib/actions/setup-pandoc@v2.14.0
       # Reuse the complete manual toolchain across checks and publication.
       - name: Set up cached TinyTeX
         uses: ./.github/actions/setup-tinytex
@@ -133,14 +134,27 @@ jobs:
         with:
           r-version: ${{ (steps.setup-r.outputs.installed-r-version || steps.setup-r-devel.outputs.installed-r-version) }}
 
+      # Ubuntu's sudo may drop R_LIB_FOR_PAK; install pak in the writable R-devel user library.
+      - name: Install pak for R-devel without sudo
+        if: matrix.config.r == 'devel'
+        shell: Rscript {0}
+        run: |
+          pak_library <- Sys.getenv("R_LIBS_USER")
+          dir.create(pak_library, recursive = TRUE, showWarnings = FALSE)
+          install.packages("pak", lib = pak_library, repos = sprintf(
+            "https://r-lib.github.io/p/pak/stable/%s/%s/%s",
+            .Platform$pkgType, R.Version()$os, R.Version()$arch))
+          cat(paste0("R_LIB_FOR_PAK=", pak_library, "\n"),
+            file = Sys.getenv("GITHUB_ENV"), append = TRUE)
+
       # Install package dependencies plus the tools used to generate documentation and run R CMD check.
       - name: Install R dependencies
-        uses: r-lib/actions/setup-r-dependencies@v2.12.1
+        uses: r-lib/actions/setup-r-dependencies@v2.14.0
         with:
+          pak-version: ${{ matrix.config.r == 'devel' && 'none' || 'stable' }}
           extra-packages: |
             any::rcmdcheck
             any::roxygen2
-            ${{ runner.os == 'Linux' && matrix.config.r == 'release' && 'any::covr' || '' }}
             ${{ runner.os == 'Linux' && matrix.config.r == 'release' && 'any::xml2' || '' }}
           needs: check
 
@@ -152,7 +166,7 @@ jobs:
       # Build and check installation, tests, examples, vignettes and the PDF manual.
       # Warnings and errors fail this check; notes remain visible in the results.
       - name: Check package
-        uses: r-lib/actions/check-r-package@v2.12.1
+        uses: r-lib/actions/check-r-package@v2.14.0
         with:
           args: '"--as-cran"'
           build_args: 'character()'
@@ -164,6 +178,12 @@ jobs:
         if: always()
         shell: Rscript {0}
         run: source("tools/check-ci-results.R")
+
+      # Install coverage tooling from CRAN source, independently of distribution-specific binary availability.
+      - name: Install coverage tooling from CRAN
+        if: success() && runner.os == 'Linux' && matrix.config.r == 'release'
+        shell: Rscript {0}
+        run: install.packages("covr", repos = "https://cloud.r-project.org", type = "source")
 
       # Measure coverage once, after successful checks on Linux with the release version of R.
       - name: Test coverage
@@ -184,15 +204,38 @@ jobs:
           covr::to_cobertura(coverage_result, filename = "coverage.xml")
 
       - name: Upload coverage to Codecov
-        if: success() && runner.os == 'Linux' && matrix.config.r == 'release'
-        uses: codecov/codecov-action@v7.0.0
+        if: success() && runner.os == 'Linux' && matrix.config.r == 'release' && !inputs.release
+        uses: codecov/codecov-action@v7.1.1
         with:
           token: ${{ secrets.CODECOV_TOKEN }}
-          slug: ultreia-io/form.tools
-          # Attribute release checks to the merged main commit, rather than the release PR head.
+          slug: ${{ github.repository }}
           override_commit: ${{ steps.checkout.outputs.commit }}
-          override_branch: ${{ github.event.pull_request.merged == true && github.event.pull_request.base.ref || '' }}
           files: coverage.xml
           plugins: noop
           disable_search: true
           fail_ci_if_error: ${{ github.event_name != 'pull_request' || secrets.CODECOV_TOKEN != '' }}
+
+      - name: Prepare the checked archive and coverage report
+        if: inputs.release && runner.os == 'Linux' && matrix.config.r == 'release'
+        working-directory: build
+        run: |
+          shopt -s nullglob
+          archives=(*.tar.gz)
+          if [[ ${#archives[@]} != 1 ]]; then
+            echo '::error::Expected exactly one checked source archive.'
+            exit 1
+          fi
+          sha256sum "${archives[0]}" > SHA256SUMS
+          cp ../coverage.xml .
+
+      - name: Save the checked release files
+        if: inputs.release && runner.os == 'Linux' && matrix.config.r == 'release'
+        uses: actions/upload-artifact@v7.0.2
+        with:
+          name: checked-release
+          path: |
+            build/*.tar.gz
+            build/SHA256SUMS
+            build/coverage.xml
+          if-no-files-found: error
+          overwrite: true

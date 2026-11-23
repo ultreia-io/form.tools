@@ -1,0 +1,19 @@
+name: Check All Platforms
+
+on:
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: Git branch, tag, or commit to check
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    uses: ./.github/workflows/Build.yaml
+    with:
+      ref: ${{ inputs.ref || github.sha }}
+      all_platforms: true
+    secrets: inherit

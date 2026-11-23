@@ -1,102 +1,83 @@
 name: Start Release
 
-# Start manually after committing the release version and changelog on develop.
-# PR updates rerun metadata validation; Build.yaml runs the package checks.
 on:
   workflow_dispatch:
-  pull_request:
-    branches: [main]
-    types: [opened, synchronize, reopened]
 
-# Read-only by default; the PR creation job requests its specific write permissions below.
 permissions:
   contents: read
 
-# Serialize manual starts; each PR has its own group for metadata checks.
 concurrency:
-  group: prepare-release-${{ github.event.pull_request.number || 'manual' }}
+  group: prepare-release
   cancel-in-progress: false
 
 jobs:
+  check:
+    if: github.ref == 'refs/heads/develop'
+    uses: ./.github/workflows/Build.yaml
+    with:
+      ref: ${{ github.sha }}
+      all_platforms: true
+      release: true
+    secrets: inherit
+
   prepare:
-    name: Release metadata
-    if: >-
-      github.event_name == 'workflow_dispatch' ||
-      (github.event.pull_request.head.repo.full_name == github.repository &&
-       startsWith(github.head_ref, 'release/'))
+    name: Open release pull request
+    needs: check
     runs-on: ubuntu-latest
-    # R is preinstalled in this Ubuntu image; no R download or installation is needed.
-    container: rocker/r-ver:latest
-    defaults:
-      run:
-        shell: bash
-    # The Gitflow action creates a release branch, opens its PR and adds the release label.
     permissions:
       contents: write
       pull-requests: write
       issues: write
     env:
-      RELEASE_BRANCH: ${{ github.head_ref }}
-      SOURCE_REF: ${{ github.ref }}
+      GH_TOKEN: ${{ secrets.RELEASE_TOKEN || github.token }}
+      GH_REPO: ${{ github.repository }}
+      RELEASE_COMMIT: ${{ github.sha }}
     steps:
-      # Read the selected develop commit, or GitHub's proposed merge on a PR event.
-      - name: Check out release sources
+      - name: Check out the checked candidate
         uses: actions/checkout@v7.0.1
-
-      - name: Cache Linux packages
-        id: apt-cache
-        uses: ./.github/actions/cache-apt
         with:
-          scope: apt-metadata-rocker
+          ref: ${{ github.sha }}
+          fetch-depth: 0
 
-      # setup-r uses lsb_release to identify the preinstalled R environment.
-      - name: Install Linux identification tool
+      - name: Open the release pull request
+        shell: bash
         run: |
-          apt-get update
-          apt-get install -y --no-install-recommends lsb-release
+          package=$(awk '$1 == "Package:" { print $2; exit }' DESCRIPTION)
+          version=$(awk '$1 == "Version:" { print $2; exit }' DESCRIPTION)
+          if [[ -z "$package" || ! "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] ||
+            ! grep -Fxq "# $package $version" NEWS.md; then
+            echo '::error::Prepare a stable version in DESCRIPTION and a matching NEWS.md heading.'
+            exit 1
+          fi
+          if git ls-remote --exit-code origin "refs/tags/$version" > /dev/null; then
+            echo "::error::Tag $version already exists."
+            exit 1
+          fi
 
-      # Only R is needed here to read DESCRIPTION; package checks run in Build.yaml.
-      - name: Set up R for metadata validation
-        uses: r-lib/actions/setup-r@v2.12.1
-        with:
-          r-version: ${{ steps.apt-cache.outputs.r-version }}
-          install-r: false
-      # Validate the version already prepared by the maintainer; do not modify files.
-      - name: Verify prepared release
-        id: release
-        shell: Rscript {0}
-        run: |
-          # DESCRIPTION is the version source; release PRs must retain that prepared version.
-          description <- read.dcf("DESCRIPTION")
-          version <- unname(description[1, "Version"])
-          if (!grepl("^[0-9]+[.][0-9]+[.][0-9]+$", version)) {
-            stop("DESCRIPTION version must use X.Y.Z format; found: ", version, call. = FALSE)
-          }
-          if (Sys.getenv("GITHUB_EVENT_NAME") == "workflow_dispatch") {
-            if (Sys.getenv("SOURCE_REF") != "refs/heads/develop") {
-              stop("Start Release must run from develop; selected ref: ", Sys.getenv("SOURCE_REF"), call. = FALSE)
-            }
-          } else {
-            expected <- sub("^release/", "", Sys.getenv("RELEASE_BRANCH"))
-            if (!identical(version, expected)) {
-              stop("Release branch version ", expected, " does not match DESCRIPTION version ", version, ".", call. = FALSE)
-            }
-          }
-          heading <- paste("#", description[1, "Package"], version)
-          if (!heading %in% readLines("NEWS.md")) {
-            stop("NEWS.md is missing the heading: ", heading, call. = FALSE)
-          }
-          cat(paste0("version=", version, "\n"), file = Sys.getenv("GITHUB_OUTPUT"), append = TRUE)
+          # Merge only the files that passed the four checks. Fetch main again after the long checks.
+          git fetch --no-tags origin main
+          if ! merge_tree=$(git merge-tree --write-tree FETCH_HEAD "$RELEASE_COMMIT") ||
+            [[ "$merge_tree" != "$(git rev-parse "$RELEASE_COMMIT^{tree}")" ]]; then
+            echo '::error::Merging into main would change the checked files. Update develop and run Start Release again.'
+            exit 1
+          fi
 
-      # Freeze develop in release/X.Y.Z and open a PR into main for manual review and merge.
-      # Use this action only for PR creation; PublishRelease.yaml handles the merged commit.
-      - name: Open Gitflow release pull request
-        if: github.event_name == 'workflow_dispatch'
-        uses: hoangvvo/gitflow-workflow-action@a8dcd721fe5390b7f837873d5af2497980890a7e # 0.3.8
-        with:
-          develop_branch: develop
-          main_branch: main
-          version: ${{ steps.release.outputs.version }}
-        env:
-          # A custom token starts PR checks automatically; GITHUB_TOKEN may require approval.
-          GITHUB_TOKEN: ${{ secrets.RELEASE_TOKEN || secrets.GITHUB_TOKEN }}
+          # Create the release branch at the exact checked SHA. A retry may advance it by fast-forward.
+          release_branch="release/$version"
+          branch_head=$(git ls-remote origin "refs/heads/$release_branch" | cut -f1)
+          if [[ -z "$branch_head" ]]; then
+            gh api --method POST "repos/$GH_REPO/git/refs" \
+              -f ref="refs/heads/$release_branch" -f sha="$RELEASE_COMMIT" > /dev/null
+          elif [[ "$branch_head" != "$RELEASE_COMMIT" ]]; then
+            gh api --method PATCH "repos/$GH_REPO/git/refs/heads/$release_branch" \
+              -f sha="$RELEASE_COMMIT" -F force=false > /dev/null
+          fi
+
+          pull_request=$(gh pr list --head "$release_branch" --base main --state open \
+            --json url --jq '.[0].url // empty')
+          if [[ -z "$pull_request" ]]; then
+            pull_request=$(gh pr create --head "$release_branch" --base main --label release \
+              --title "Release $version" \
+              --body "All four environments passed in [Start Release]($GITHUB_SERVER_URL/$GH_REPO/actions/runs/$GITHUB_RUN_ID).")
+          fi
+          echo "Release pull request: $pull_request" >> "$GITHUB_STEP_SUMMARY"
