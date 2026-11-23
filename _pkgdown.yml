@@ -3,6 +3,8 @@ template:
   bootstrap: 5
   light-switch: true
 reference:
+  - title: Table loading
+    contents: [read_form_tables, sql_table_loader]
   - title: Workbook operations
     contents: [split_form_workbook, write_form_workbook]
   - title: Package
@@ -10,7 +12,7 @@ reference:
 articles:
   - title: Guides
     navbar: Guides
-    contents: [terminology, form.tools]
+    contents: [terminology, form.tools, sql-loading, resources]
 navbar:
   structure:
     left: [intro, reference, articles, news, coverage, community]
@@ -23,6 +25,10 @@ navbar:
           href: articles/terminology.html
         - text: Getting started
           href: articles/form.tools.html
+        - text: Load tables from SQL
+          href: articles/sql-loading.html
+        - text: Package resources
+          href: articles/resources.html
     coverage:
       text: Coverage
       href: https://app.codecov.io/gh/ultreia-io/form.tools
@@ -53,4 +59,4 @@ footer:
   components:
     company: "[ultreia.io](https://ultreia.io/)"
     copyright: "· © 2026"
-    license: "· [License: LGPL-2.1](https://ultreia-io.github.io/form.tools/LICENSE)"
+    license: "· [License: LGPL-2.1](/form.tools/LICENSE-text.html)"

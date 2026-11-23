@@ -9,6 +9,7 @@ The files organize functions in one package namespace. You do not source each fi
 | File                   | Responsibility                                                          |
 | ---------------------- | ----------------------------------------------------------------------- |
 | `split.R`              | Select related records and publish split workbooks.                     |
+| `read.R`               | Load model tables through SQL files and a supplied backend.             |
 | `write.R`              | Encode typed data and write forms using model-defined field names.      |
 | `workbook.R`           | Read XLSX parts and populate templates while preserving workbook parts. |
 | `form.tools-package.R` | Provide package-level documentation.                                    |
@@ -16,19 +17,34 @@ The files organize functions in one package namespace. You do not source each fi
 Workbook operations consume `form.model` through its public API.
 `xml2` reads and writes worksheet XML; `zip` assembles output XLSX archives.
 
+`read_form_tables()` selects SQL files using the form model and checks the returned columns.
+
+`sql_table_loader()` delegates query execution and parameter binding to `db.tools`.
+
+The SQL example and integration tests use in-memory SQLite databases through `RSQLite`.
+
 ## Local verification
 
 Run from the package root with development dependencies and LaTeX installed:
 
 ```sh
+# Generate documentation, run all checks and build the website.
 Rscript tools/check.R
 ```
 
 This generates documentation, runs tests, builds and checks the archive with `--as-cran`, then builds the website.
 
-Local and CI checks share the CRAN mirror settings in `tools/check.Renviron`. All CRAN checks remain enabled.
+Local and CI checks share the CRAN mirror settings in `tools/check.Renviron`.
 
-The **Build** workflow measures coverage with `covr` on Linux after successful checks and uploads it to Codecov.
+Local verification and CI run `R CMD check --as-cran`, including CRAN incoming checks.
+
+CI skips remote incoming checks while `db.tools` comes from GitHub and the new article URLs await deployment.
+
+**Build** runs one Linux R-release job for development pushes and ordinary PRs.
+
+It measures coverage with `covr` and uploads it to Codecov.
+
+Run **Actions → Check All Platforms** for Linux with R release and R-devel, macOS, and Windows.
 
 The README coverage badges link to the Codecov report. Website builds do not run coverage checks.
 
@@ -40,6 +56,8 @@ Review coverage gaps for missing behaviour. Check installed resources, runnable 
 
 ## Website
 
+Website builds use `pkgdown`, `RSQLite` and `zip`, declared in `Config/Needs/website`.
+
 Run from the package root with website dependencies installed:
 
 ``` r
@@ -50,6 +68,12 @@ pkgdown::build_site()
 ```
 
 The preparation replaces ignored `pkgdown/assets/` copies; the survey files remain in `form.model`'s `inst/examples/`.
+
+Source-model and SQL examples are tracked in this package's `inst/examples/survey/` directory.
+
+The Package resources article links every file and the `form.tools-resources-<version>.zip` archive.
+
+The ZIP combines both packages' example files under `examples/survey/`.
 
 ## GitHub Release
 
@@ -64,18 +88,26 @@ The preparation replaces ignored `pkgdown/assets/` copies; the survey files rema
 
    1. Open **Actions → Start Release**.
    2. Click **Run workflow**, select `develop`, then click **Run workflow** to confirm.
-   3. Open the release PR created by the workflow.
+   3. The workflow checks the selected commit on all four environments and saves the checked Linux archive.
+   4. After all four checks pass, it opens the release PR at the checked commit.
 
 3. **Merge the release PR:**
 
-   1. **Wait for the checks:** all checks on the release PR must be green.
-   2. **Merge:** click **Merge pull request**, then **Confirm merge**.
-   3. Merging automatically starts the **Publish Release** workflow.
+   1. Review the release PR and merge it. Its checks already passed in **Start Release**.
+   2. Merging starts **Publish Release**, which verifies that the merged files match the checked candidate.
 
-The **Publish Release** workflow:
+**Publish Release** publishes the checked archive and checksum, then deploys the documentation.
 
-1. Publishes the package archive, checksum and documentation.
-2. **Submits the same archive to CRAN**.
+If the merge changes the checked files, update `develop` and rerun **Start Release** before merging a new PR.
+
+### Enable CRAN submission
+
+The **Submit to CRAN** job is skipped by default. Enable it when the package's required dependencies are on CRAN.
+
+1. Open the repository's **Settings → Secrets and variables → Actions → Variables**.
+2. Click **New repository variable** and set `SUBMIT_TO_CRAN` to `true`.
+
+To disable submission, remove the variable or set it to `false`.
 
 ## Manual CRAN submission
 

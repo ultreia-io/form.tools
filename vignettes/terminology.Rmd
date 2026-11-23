@@ -15,6 +15,17 @@ vignette: >
 | Form model   | A versioned definition of a form’s sheets, fields, layout and constraints.   |
 | Consumer     | A package, tool or application that uses the package’s operations.           |
 
+## Table loading
+
+| Term               | Meaning                                                                  |
+| ------------------ | ------------------------------------------------------------------------ |
+| Source model       | A form model whose table sheets declare the data to load.                |
+| Query directory    | The directory containing one SQL file named after each model sheet.      |
+| Table loader       | A function accepting SQL and parameters and returning a complete table.  |
+| SQL backend        | A table loader using a caller-owned DBI connection through `db.tools`.   |
+| Consumer backend   | A supplied loader implementing the same contract for another transport.  |
+| Bound parameter    | A value passed separately from SQL text using the backend's protocol.    |
+
 ## Form operations
 
 | Term              | Meaning                                                                           |

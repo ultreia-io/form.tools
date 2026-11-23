@@ -1,0 +1,96 @@
+---
+title: "Package resources"
+output: rmarkdown::html_vignette
+vignette: >
+  %\VignetteIndexEntry{Package resources}
+  %\VignetteEngine{knitr::rmarkdown}
+  %\VignetteEncoding{UTF-8}
+---
+
+This article collects the models, workbook templates and SQL files used in the guides.
+
+Use [Getting started](form.tools.html) for workbook operations and [Load tables from SQL](sql-loading.html) for loading.
+
+## Get the resources
+
+```{r resources-archive, echo=FALSE, results='asis'}
+# Read the package version used in the downloadable archive name.
+resources_version <- as.character(utils::packageVersion("form.tools"))
+# Offer the archive on the website and installed resources in the package guide.
+if (identical(Sys.getenv("IN_PKGDOWN"), "true")) {
+  # Link the ZIP archive containing all the examples below.
+  cat(sprintf("[Download all examples (%s, ZIP)](../form.tools-resources-%s.zip).\n",
+    resources_version, resources_version))
+} else {
+  # Identify the packages supplying the offline resources.
+  cat("The example files are installed with `form.tools` and its dependency `form.model`.\n")
+}
+```
+
+The archive name includes the `form.tools` version. Its `examples/survey/` directory preserves the query paths.
+
+```{r resources-directories}
+# Locate the source model and SQL queries installed with this package.
+resources_directory <- system.file("examples", "survey", package = "form.tools")
+# Locate the shared workbook model and templates installed with form.model.
+workbook_resources_directory <- system.file("examples", "survey", package = "form.model")
+```
+
+## Example downloads
+
+```{r resources-downloads, echo=FALSE, results='asis'}
+# Describe the packaged SQL files and the shared workbook resources.
+resources <- data.frame(
+  File = c("form-source.yaml", "queries/surveys.sql", "queries/observations.sql", "README.md",
+    "form.yaml", "form.xlsx", "form-empty.xlsx"),
+  Package = c(rep("form.tools", 4L), rep("form.model", 3L)),
+  Purpose = c("Source table model for SQL loading.", "Select the requested survey.",
+    "Select its related observations.", "Directory layout and usage notes.",
+    "Workbook model for writing and splitting.", "Populated workbook to split.",
+    "Empty template for output workbooks."))
+# Display file names without depending on a network connection.
+resource_labels <- sprintf("`%s`", resources$File)
+# Add download links only when building the website.
+if (identical(Sys.getenv("IN_PKGDOWN"), "true")) {
+  # Resolve downloads relative to this article.
+  resource_targets <- paste0("../examples/survey/", resources$File)
+  # Keep the Markdown download as its original file rather than an HTML page.
+  resource_targets[resources$File == "README.md"] <-
+    "https://ultreia-io.github.io/form.tools/examples/survey/README.md"
+  # Render one link for each resource.
+  resource_labels <- sprintf("[`%s`](%s)", resources$File, resource_targets)
+}
+# Replace file names with the labels for this output format.
+resources$File <- resource_labels
+# Render the complete list as a Markdown table.
+cat(knitr::kable(resources, format = "pipe"), sep = "\n")
+```
+
+The source and workbook models illustrate separate operations. They do not define a source-to-workbook conversion.
+
+## Form model schema
+
+`form.tools` uses the versioned form model contract supplied by `form.model`.
+
+Both example YAML files declare `schema_version: "1.0.0"` and are read with `form.model::read_form_model()`.
+
+Schema documentation belongs to [form.model][form-model-schema]; this package does not define another schema.
+
+[form-model-schema]: https://ultreia-io.github.io/form.model/articles/form.model.html
+
+## SQL query contract
+
+- Supply one `<sheet>.sql` file per model sheet; a sheet named `schema.table` uses `schema.table.sql`.
+- Return exactly the modeled columns in their declared order, including headers for empty results.
+- Apply the supplied parameter list in every query using the selected backend's parameter syntax.
+- Declare ordering with `ORDER BY` when row order matters.
+
+The SQLite queries use `?` placeholders for a bound survey identifier.
+
+Queries are trusted input supplied by the consumer. Database credentials and connection objects are not package resources.
+
+```{r resources-source-model, echo=FALSE, results='asis'}
+# Display the source model directly from the installed example.
+cat("```yaml\n", paste(readLines(file.path(resources_directory, "form-source.yaml")),
+  collapse = "\n"), "\n```\n", sep = "")
+```

@@ -18,23 +18,41 @@ Read the [Terminology](https://ultreia-io.github.io/form.tools/articles/terminol
 
 A form is an Excel workbook used to collect data. Its form model describes the expected structure and rules in YAML.
 
-The writer fills an empty form with typed R data, placing values by the field names defined in the form model.
+Consumers supply the form model, source data and matching workbook templates.
 
-The splitter creates one form per root record, selecting related records through primary and parent keys.
+## Features
 
-Both operations preserve template formatting and supporting workbook parts. Source files remain unchanged.
+**Table loading**
 
-Consumers supply the form model, matching empty form and data to write or split.
+- Read one SQL query per model sheet, including names such as `schema.table.sql`.
+- Use a caller-owned database connection through `db.tools`, or supply a consumer backend.
+- Bind query parameters with the database driver and preserve its returned values and types.
+- Return tables in model order with the declared columns, including empty tables.
+
+**Workbook writing**
+
+- Fill an empty template with typed R data using model-defined field names.
+- Write text, numbers, logical values, dates and UTC date-times without losing literal text or leading zeros.
+- Preserve template formatting and supporting workbook parts; extend standard validation ranges as needed.
+- Publish a new workbook without overwriting existing files.
+
+**Workbook splitting**
+
+- Split a structurally validated form into one workbook per root record.
+- Select related rows through primary and parent keys, including composite keys.
+- Copy fixed metadata and explicitly selected shared tables into every output.
+- Return a manifest of output paths and root keys; keep the source workbook and template unchanged.
 
 ## Related packages
 
+- [db.tools](https://github.com/ultreia-io/db.tools) runs database queries, manages connections and restores H2 backups.
 - [form.model](https://github.com/ultreia-io/form.model) defines forms, their layouts and constraints.
 - [form.references](https://github.com/ultreia-io/form.references) loads reference catalogues and resolves lookups.
 - [form.validation](https://github.com/ultreia-io/form.validation) validates submitted forms and produces reports.
 
 ## Installation
 
-The first CRAN submission is pending. Once available, install the latest version from CRAN:
+Install the latest version available on CRAN:
 
 ``` r
 # Install form.tools from CRAN.
@@ -61,9 +79,13 @@ pak::pak("ultreia-io/form.tools@develop")
 
 ## Getting started
 
-Follow the [Getting started guide](https://ultreia-io.github.io/form.tools/articles/form.tools.html) for the runnable survey example and downloadable files.
+Follow [Getting started][getting-started] for runnable survey examples.
+
+[getting-started]: https://ultreia-io.github.io/form.tools/articles/form.tools.html
 
 ## Guides
 
+- [Load tables from SQL](https://ultreia-io.github.io/form.tools/articles/sql-loading.html)
+- [Package resources](https://ultreia-io.github.io/form.tools/articles/resources.html): models, workbooks and SQL downloads.
 - [API reference](https://ultreia-io.github.io/form.tools/reference/index.html)
 - [Contributing](https://ultreia-io.github.io/form.tools/CONTRIBUTING.html) and [maintenance](https://ultreia-io.github.io/form.tools/DEVELOPMENT.html)
