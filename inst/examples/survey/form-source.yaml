@@ -1,0 +1,18 @@
+# Source tables used by the SQLite example in the SQL loading guide.
+schema_version: "1.0.0"
+form:
+  id: survey-source
+  version: "1.0"
+references: {}
+sheets:
+  surveys:
+    layout: {kind: table, start_row: 2}
+    primary_key: [id]
+    fields:
+      id: {type: string}
+  observations:
+    layout: {kind: table, start_row: 2}
+    parent_key: {sheet: surveys, fields: [survey]}
+    fields:
+      survey: {type: string}
+      count: {type: integer}
