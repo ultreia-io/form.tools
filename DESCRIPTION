@@ -1,6 +1,6 @@
 Package: form.tools
 Title: Neutral Model-Driven Workbook Tools
-Version: 0.2.0
+Version: 0.3.0
 Authors@R:
     person("Tony", "Chemit", role = c("aut", "cre", "cph"),
            email = "dev@tchemit.fr",
@@ -9,7 +9,8 @@ Description: Provides tools for working with Excel workbooks using form
     definitions supplied by 'form.model'. Splits structurally validated workbooks
     by primary and parent keys and populates matching empty templates while
     preserving their styles and supporting workbook parts. Keeps domain
-    definitions and reference data separate from workbook operations.
+    definitions and reference data separate from workbook operations. Loads
+    model tables through supplied SQL queries and database or consumer loaders.
 License: LGPL-2.1
 URL: https://ultreia-io.github.io/form.tools/,
     https://github.com/ultreia-io/form.tools

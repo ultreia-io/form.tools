@@ -1,3 +1,10 @@
+# form.tools 0.3.0
+
+* [feature] Load model tables through SQL files and a supplied table loader, with a db.tools backend.
+* [docs] Group package features and provide survey resources in a versioned ZIP archive.
+* [build] Run the SQL examples and tests with SQLite.
+* [build] Run routine builds on Linux, check all four environments before the release PR, and make CRAN submission opt-in.
+
 # form.tools 0.2.0
 
 * [feature] Write typed data into empty forms using model-defined field names while preserving template formatting.
