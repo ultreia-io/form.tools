@@ -1,0 +1,78 @@
+---
+title: "Load tables from SQL"
+output: rmarkdown::html_vignette
+vignette: >
+  %\VignetteIndexEntry{Load tables from SQL}
+  %\VignetteEngine{knitr::rmarkdown}
+  %\VignetteEncoding{UTF-8}
+---
+
+`read_form_tables()` loads one table per form model sheet through a supplied loader.
+
+The model selects the sheets and expected fields; each `<sheet>.sql` file supplies its query.
+
+The same parameter list is passed to every query. SQL defines selection, joins and row order.
+
+## Direct database access
+
+`sql_table_loader()` uses `db.tools::db_query()` to bind parameters and run queries on a caller-owned DBI connection.
+
+This example reads one survey and its observations from an in-memory SQLite database.
+
+```{r sql-example, eval=requireNamespace("RSQLite", quietly = TRUE)}
+# Keep the example connection within one temporary scope.
+local({
+  # Open a disposable SQLite database.
+  connection <- DBI::dbConnect(RSQLite::SQLite(), ":memory:")
+  # Close the connection even if a query fails.
+  on.exit(DBI::dbDisconnect(connection), add = TRUE)
+  # Locate the source model and SQL files supplied by this package.
+  resources_directory <- system.file("examples", "survey", package = "form.tools")
+  # Read the source tables and field order from the example model.
+  source_model <- form.model::read_form_model(file.path(resources_directory, "form-source.yaml"))
+  # Select the directory containing one query per model sheet.
+  queries_directory <- file.path(resources_directory, "queries")
+  # Supply two independent surveys.
+  DBI::dbWriteTable(connection, "surveys", data.frame(id = c("S01", "S02")))
+  # Supply observations linked to each survey.
+  DBI::dbWriteTable(connection, "observations", data.frame(survey = c("S01", "S02"), count = c(3L, 8L)))
+  # Adapt the caller's connection to the table-loader contract.
+  table_loader <- form.tools::sql_table_loader(connection)
+  # Read only the selected survey, preserving the model's sheet and field names.
+  source_tables <- form.tools::read_form_tables(source_model, queries_directory, table_loader, list("S01"))
+  # Display the two loaded tables.
+  source_tables
+})
+```
+
+The caller installs its DBI driver and may use `db.tools::db_connect_from_yaml()` to create the connection.
+
+For a consistent snapshot, the caller chooses suitable transaction isolation and wraps the complete read.
+
+Download the source model and queries from [Package resources](resources.html).
+
+## Consumer backends
+
+A backend is a function with arguments `sql` and `params = NULL` that returns a data frame.
+
+It may call a database, an authenticated SQL service or another consumer-owned transport.
+
+`read_form_tables()` calls it once per sheet and checks the returned column names and order.
+
+Connections, authentication, request limits and parameter syntax belong to the backend.
+
+Backends must return a complete result or raise an error; silently truncated tables are not acceptable.
+
+## Result contract
+
+* One data frame per model sheet, in declaration order.
+* Exact modeled field names and order, including headers for tables with no rows.
+* Original query row order and values, without reference conversion or missing-value defaults.
+* Backend-provided R column types; drivers and HTTP transports may represent dates differently.
+* No files written and no partial result returned if any query fails.
+
+The loader accepts table layouts. Reference catalogues are retrieved separately through `form.references`.
+
+It does not validate field values, keys or parent relationships, and does not infer queries from those relationships.
+
+The loader holds the selected tables in memory. CSV publication, streaming and pagination belong to the consumer.

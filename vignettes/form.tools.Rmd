@@ -25,6 +25,7 @@ The bundled survey form model has a composite primary key `[station, observation
 Each output contains one observation and all fixed metadata, even when identifiers repeat across stations.
 
 ```{r split}
+# Load the workbook operations.
 library(form.tools)
 # Locate the installed example resources.
 example_directory <- system.file("examples", "survey", package = "form.model")
@@ -148,15 +149,4 @@ The writer checks names, R types and writable positions. It does not check requi
 
 Validate the populated form separately before treating it as a valid submission.
 
-## Download the example files
-
-```{r resource-links-1, echo=FALSE, results="asis"}
-# Use relative website links and installed resources in the package guide.
-if (identical(Sys.getenv("IN_PKGDOWN"), "true")) {
-  # Render links relative to the website article.
-  cat("- [Form model \u2014 form.yaml](../examples/survey/form.yaml)\n- [Populated form \u2014 form.xlsx](../examples/survey/form.xlsx)\n- [Empty form \u2014 form-empty.xlsx](../examples/survey/form-empty.xlsx)\n")
-} else {
-  # Point readers to the installed package resources.
-  cat("Find these files with `system.file(\"examples\", \"survey\", package = \"form.model\")`.\n")
-}
-```
+Download the model and both workbooks from [Package resources](resources.html).
