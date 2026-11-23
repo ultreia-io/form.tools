@@ -43,7 +43,7 @@ runs:
         fi
     - name: Configure R-devel
       id: setup-r
-      uses: r-lib/actions/setup-r@v2.12.1
+      uses: r-lib/actions/setup-r@v2.14.0
       with:
         r-version: devel
         install-r: ${{ steps.r-cache.outputs.cache-hit != 'true' }}

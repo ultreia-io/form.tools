@@ -1,167 +1,118 @@
 name: Publish Release
 
-# Manual merging of a release PR starts publication. Closing it without merging does nothing.
+# Merging a checked release PR starts publication.
 on:
   pull_request:
     branches: [main]
     types: [closed]
 
-# Checks only read sources; publication and Pages jobs request their own write permissions.
 permissions:
   contents: read
 
-# Serialize publications without cancelling a release already in progress.
 concurrency:
   group: publish-release
   cancel-in-progress: false
 
 jobs:
-  # Reuse the Linux, macOS and Windows checks against the actual merged commit.
-  checks:
+  publish:
     if: >-
       github.event.pull_request.merged == true &&
       github.event.pull_request.head.repo.full_name == github.repository &&
       startsWith(github.event.pull_request.head.ref, 'release/')
-    uses: ./.github/workflows/Build.yaml
-    with:
-      ref: ${{ github.event.pull_request.merge_commit_sha }}
-    secrets: inherit
-
-  # Publish only after all platform checks pass. Build the downloadable archive on Linux.
-  publish:
-    needs: checks
     runs-on: ubuntu-latest
-    # R is preinstalled in this Ubuntu image; no R download or installation is needed.
-    container: rocker/r-ver:latest
-    defaults:
-      run:
-        shell: bash
     permissions:
+      actions: read
       contents: write
     outputs:
       commit: ${{ github.event.pull_request.merge_commit_sha }}
-      tag: ${{ steps.version.outputs.tag }}
-    env:
-      # Reuse dependency metadata while retaining pak's default daily refresh.
-      PKG_METADATA_CACHE_DIR: ${{ github.workspace }}/.github/pak-metadata
-      GITHUB_PAT: ${{ secrets.GITHUB_TOKEN }}
-      RELEASE_BRANCH: ${{ github.event.pull_request.head.ref }}
-      _R_CHECK_CRAN_INCOMING_: 'true'
-      _R_CHECK_CRAN_INCOMING_REMOTE_: 'true'
-      # Share CRAN mirror settings with local checks.
-      R_CHECK_ENVIRON: ${{ github.workspace }}/tools/check.Renviron
-      _R_CHECK_SYSTEM_CLOCK_: 'false'
+      tag: ${{ steps.candidate.outputs.tag }}
     steps:
-      # Use the commit approved by the manual merge throughout publication.
       - name: Check out merged release
         uses: actions/checkout@v7.0.1
         with:
           ref: ${{ github.event.pull_request.merge_commit_sha }}
 
-      - name: Cache Linux packages
-        id: apt-cache
-        uses: ./.github/actions/cache-apt
-
-      # Add Git, R check tools and lsb_release, which setup-r uses to identify Ubuntu.
-      - name: Install Linux check tools
-        if: runner.os == 'Linux'
+      - name: Find the successful Start Release run
+        id: candidate
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          RELEASE_HEAD: ${{ github.event.pull_request.head.sha }}
+          RELEASE_BRANCH: ${{ github.event.pull_request.head.ref }}
         run: |
-          apt-get update
-          apt-get install -y --no-install-recommends git qpdf ghostscript lsb-release sudo texinfo xz-utils curl tidy
+          tag=${RELEASE_BRANCH#release/}
+          package=$(awk '$1 == "Package:" { print $2; exit }' DESCRIPTION)
+          version=$(awk '$1 == "Version:" { print $2; exit }' DESCRIPTION)
+          checked_tree=$(gh api "repos/$GH_REPO/git/commits/$RELEASE_HEAD" --jq '.tree.sha')
+          if [[ -z "$package" || "$version" != "$tag" || "$checked_tree" != "$(git rev-parse HEAD^{tree})" ]]; then
+            echo '::error::The merged files differ from the release candidate. Run Start Release for the updated files.'
+            exit 1
+          fi
 
-      # Configure the image's R installation and use package binaries where supported.
-      - name: Set up R
-        id: setup-r
-        uses: r-lib/actions/setup-r@v2.12.1
-        with:
-          r-version: ${{ steps.apt-cache.outputs.r-version }}
-          install-r: false
-          use-public-rspm: true
+          # A maintainer can merge just before the PR creation job records its success.
+          for attempt in {1..6}; do
+            run_id=$(gh api --method GET "repos/$GH_REPO/actions/workflows/StartRelease.yaml/runs" \
+              -f branch=develop -f event=workflow_dispatch -f head_sha="$RELEASE_HEAD" -f status=success \
+              -F per_page=1 --jq '.workflow_runs[0].id // empty')
+            if [[ -n "$run_id" ]]; then break; fi
+            sleep 5
+          done
+          if [[ -z "$run_id" ]]; then
+            echo '::error::No successful Start Release run matched this release commit.'
+            exit 1
+          fi
+          {
+            echo "run-id=$run_id"
+            echo "tag=$tag"
+            echo "archive=${package}_${tag}.tar.gz"
+          } >> "$GITHUB_OUTPUT"
 
-      # Rocker installs into its site library; tell setup-r-dependencies to cache that actual location.
-      - name: Select R package cache directory on Linux
-        if: runner.os == 'Linux'
-        shell: Rscript {0}
-        run: cat(paste0("R_LIBS_USER=", .libPaths()[1], "\n"), file = Sys.getenv("GITHUB_ENV"), append = TRUE)
-      # Read the prepared version and expose its tag to the release action below.
-      - name: Verify prepared version
-        id: version
-        shell: Rscript {0}
-        run: |
-          description <- read.dcf("DESCRIPTION")
-          version <- unname(description[1, "Version"])
-          if (!grepl("^[0-9]+[.][0-9]+[.][0-9]+$", version)) {
-            stop("DESCRIPTION version must use X.Y.Z format; found: ", version, call. = FALSE)
-          }
-          expected_branch <- paste0("release/", version)
-          if (!identical(Sys.getenv("RELEASE_BRANCH"), expected_branch)) {
-            stop("Release branch ", Sys.getenv("RELEASE_BRANCH"), " does not match DESCRIPTION version ",
-                 version, "; expected branch: ", expected_branch, call. = FALSE)
-          }
-          heading <- paste("#", description[1, "Package"], version)
-          if (!heading %in% readLines("NEWS.md")) {
-            stop("NEWS.md is missing the heading: ", heading, call. = FALSE)
-          }
-          cat(paste0("tag=", version, "\n"), file = Sys.getenv("GITHUB_OUTPUT"), append = TRUE)
-      # Pandoc renders package vignettes during the build.
-      - name: Set up Pandoc
-        uses: r-lib/actions/setup-pandoc@v2.12.1
-      # Reuse the complete manual toolchain used by Build.
-      - name: Set up cached TinyTeX
-        uses: ./.github/actions/setup-tinytex
-      # Restore the last metadata snapshot before dependency resolution on every platform.
-      # A new key saves any refreshed metadata; pak still decides when it needs an update.
-      - name: Cache R dependency metadata
-        uses: ./.github/actions/cache-r-metadata
+      - name: Download the checked release files
+        uses: actions/download-artifact@v8.0.2
         with:
-          r-version: ${{ steps.setup-r.outputs.installed-r-version }}
+          name: checked-release
+          path: build
+          github-token: ${{ github.token }}
+          run-id: ${{ steps.candidate.outputs.run-id }}
 
-      # This job installs its own dependencies and the documentation/check tools.
-      - name: Install package and check dependencies
-        uses: r-lib/actions/setup-r-dependencies@v2.12.1
-        with:
-          extra-packages: |
-            any::rcmdcheck
-            any::roxygen2
-          needs: check
-      # Generate Rd files from roxygen comments for inclusion in the source archive.
-      - name: Generate package documentation
-        shell: Rscript {0}
-        run: roxygen2::roxygenise()
-      # This job has its own workspace: build and check the archive that will be uploaded.
-      # Fail on warnings and errors; retain CRAN notes for review.
-      - name: Build and check publication archive
-        uses: r-lib/actions/check-r-package@v2.12.1
-        with:
-          args: '"--as-cran"'
-          build_args: 'character()'
-          check-dir: '"build"'
-          error-on: '"warning"'
-      # Require a completed check before publishing the archive.
-      - name: Verify check completion
-        shell: Rscript {0}
-        run: source("tools/check-ci-results.R")
-      # Supply a checksum alongside the archive so downloads can be verified.
-      - name: Create archive checksum
+      - name: Verify the checked archive
         working-directory: build
-        run: sha256sum *.tar.gz > SHA256SUMS
-      # Create the tag on the merged commit and attach the checked archive and checksum.
+        shell: bash
+        env:
+          RELEASE_ARCHIVE: ${{ steps.candidate.outputs.archive }}
+        run: |
+          sha256sum "$RELEASE_ARCHIVE" | cmp - SHA256SUMS
+
+      - name: Upload checked coverage for the merged commit
+        uses: codecov/codecov-action@v7.0.0
+        with:
+          token: ${{ secrets.CODECOV_TOKEN }}
+          slug: ${{ github.repository }}
+          override_commit: ${{ github.event.pull_request.merge_commit_sha }}
+          override_branch: main
+          files: build/coverage.xml
+          plugins: noop
+          disable_search: true
+          fail_ci_if_error: true
+
       - name: Publish GitHub release
         uses: softprops/action-gh-release@v3
         with:
-          tag_name: ${{ steps.version.outputs.tag }}
+          tag_name: ${{ steps.candidate.outputs.tag }}
           target_commitish: ${{ github.event.pull_request.merge_commit_sha }}
           files: |
-            build/*.tar.gz
+            build/${{ steps.candidate.outputs.archive }}
             build/SHA256SUMS
           fail_on_unmatched_files: true
           overwrite_files: false
           generate_release_notes: true
 
-  # Submit the exact published archive; website deployment remains independent.
+  # Repositories opt in to CRAN submission after a successful publication.
   cran:
     name: Submit to CRAN
     needs: publish
+    if: vars.SUBMIT_TO_CRAN == 'true'
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -169,7 +120,6 @@ jobs:
       GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       GH_REPO: ${{ github.repository }}
       RELEASE_TAG: ${{ needs.publish.outputs.tag }}
-      RELEASE_ARCHIVE: form.tools_${{ needs.publish.outputs.tag }}.tar.gz
     steps:
       # Release assets survive reruns; an unfinished attempt must be reviewed before retrying.
       - name: Check previous CRAN submission
@@ -191,25 +141,35 @@ jobs:
           ref: ${{ needs.publish.outputs.commit }}
       - name: Set up R
         if: steps.submission.outputs.skip != 'true'
-        uses: r-lib/actions/setup-r@v2.12.1
+        uses: r-lib/actions/setup-r@v2.14.0
         with:
           use-public-rspm: true
+      - name: Install libcurl development files
+        if: steps.submission.outputs.skip != 'true'
+        shell: bash
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends libcurl4-openssl-dev pkg-config
       - name: Install submission tools
         if: steps.submission.outputs.skip != 'true'
-        uses: r-lib/actions/setup-r-dependencies@v2.12.1
-        with:
-          packages: |
-            any::xfun
-            any::curl
+        shell: Rscript {0}
+        run: |
+          install.packages(c("xfun", "curl"), repos = "https://cloud.r-project.org")
+          # Installation failures can be warnings; require loadable tools before reserving an upload.
+          library(xfun)
+          library(curl)
       - name: Download and verify the release archive
         if: steps.submission.outputs.skip != 'true'
         shell: bash
         run: |
+          package=$(awk '$1 == "Package:" { print $2; exit }' "$GITHUB_WORKSPACE/DESCRIPTION")
+          archive="${package}_${RELEASE_TAG}.tar.gz"
           mkdir -p "$RUNNER_TEMP/cran-release"
-          gh release download "$RELEASE_TAG" --pattern "$RELEASE_ARCHIVE" --pattern SHA256SUMS \
+          gh release download "$RELEASE_TAG" --pattern "$archive" --pattern SHA256SUMS \
             --dir "$RUNNER_TEMP/cran-release"
           cd "$RUNNER_TEMP/cran-release"
-          sha256sum --check SHA256SUMS
+          sha256sum "$archive" | cmp - SHA256SUMS
+          echo "RELEASE_ARCHIVE=$archive" >> "$GITHUB_ENV"
           if [[ -f "$GITHUB_WORKSPACE/cran-comments.md" ]]; then
             cp "$GITHUB_WORKSPACE/cran-comments.md" .
           fi
