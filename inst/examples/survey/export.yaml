@@ -1,0 +1,21 @@
+schema_version: "1.0.0"
+source:
+  root: surveys
+sheets:
+  observations:
+    rows:
+      status: specified
+      rule: each
+      inputs:
+        records: {sheet: observations, within: surveys}
+    fields:
+      survey:
+        status: specified
+        rule: copy
+        inputs:
+          value: {sheet: surveys, field: id}
+      count:
+        status: specified
+        rule: copy
+        inputs:
+          value: {sheet: observations, field: count}
