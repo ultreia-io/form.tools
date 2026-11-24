@@ -74,7 +74,7 @@ prepare_form_export <- function(source_model, target_model, root_sheet, sheets, 
     fields <- definition$fields[names(target[[sheet_name]]$fields)]
     if (rows$status == "specified") {
       records <- rows$inputs[["records"]]
-      if (is.null(records$sheet) || !is.null(records$field))
+      if (is.null(records$sheet) || !is.null(records[["field"]]))
         stop(sheet_name, " rows must bind records to a source data frame", call. = FALSE)
       for (name in names(fields))
         fields[[name]] <- prepare_export_rule(fields[[name]], records$sheet, source, target, rules,
@@ -218,10 +218,11 @@ prepare_export_binding <- function(binding, anchor, source, target, label) {
     stop(label, ": unsupported source binding", call. = FALSE)
   require_nonempty_string(binding$sheet, label)
   if (!binding$sheet %in% names(source)) stop(label, ": unknown source sheet", call. = FALSE)
-  if (!is.null(binding$field) && !is.null(binding$fields))
+  field <- binding[["field"]]
+  if (!is.null(field) && !is.null(binding$fields))
     stop(label, ": supply either field or fields", call. = FALSE)
-  if (!is.null(binding$field)) require_nonempty_string(binding$field, label)
-  binding$columns <- unlist(c(binding$field, binding$fields), use.names = FALSE)
+  if (!is.null(field)) require_nonempty_string(field, label)
+  binding$columns <- unlist(c(field, binding$fields), use.names = FALSE)
   if (!all(binding$columns %in% names(source[[binding$sheet]]$fields)) || anyDuplicated(binding$columns))
     stop(label, ": unknown or repeated source fields", call. = FALSE)
   owner <- binding$within
@@ -349,7 +350,7 @@ resolve_export_inputs <- function(bindings, source, group, inputs) {
     rows <- export_binding_rows(binding, source, group)
     columns <- binding$columns
     table <- source$data[[binding$sheet]]
-    if (!is.null(binding$field)) {
+    if (!is.null(binding[["field"]])) {
       if (is.null(binding$within) && length(rows) != 1L)
         stop("Expected one source row for ", binding$sheet, ".", binding$field, call. = FALSE)
       return(table[[binding$field]][rows])

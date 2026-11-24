@@ -236,7 +236,7 @@ check_export_declaration <- function(rule, resource, path, rows = FALSE) {
     abort_export_yaml(resource, paste0(path, ".rule"), "specified declarations require a rule")
   if (rows && rule$status == "specified") {
     records <- rule$inputs[["records"]]
-    if (is.null(records$sheet) || !is.null(records$model) || !is.null(records$field))
+    if (is.null(records$sheet) || !is.null(records$model) || !is.null(records[["field"]]))
       abort_export_yaml(resource, paste0(path, ".inputs.records"), "expected a source data frame binding")
   }
   for (name in names(rule$inputs)) {
