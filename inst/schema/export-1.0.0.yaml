@@ -1,0 +1,57 @@
+dialect: form.tools/export-schema/1
+contract_version: "1.0.0"
+root: export
+definitions:
+  id:
+    type: string
+    pattern: ^[A-Za-z][A-Za-z0-9_.-]*$
+  export:
+    type: mapping
+    required: [schema_version, source, sheets]
+    properties:
+      schema_version: {type: string, enum: ["1.0.0"]}
+      source:
+        type: mapping
+        required: [root]
+        properties:
+          root: {ref: id}
+      sheets:
+        type: mapping
+        key_pattern: ^[A-Za-z][A-Za-z0-9_.-]*$
+        min_items: 1
+        values: {ref: sheet}
+  sheet:
+    type: mapping
+    required: [rows, fields]
+    properties:
+      rows: {ref: rule}
+      fields:
+        type: mapping
+        key_pattern: ^[A-Za-z][A-Za-z0-9_.-]*$
+        values: {ref: rule}
+  rule:
+    type: mapping
+    required: [status]
+    properties:
+      status: {type: string, enum: [specified, pending, unavailable, omitted]}
+      rule: {ref: id}
+      inputs:
+        type: mapping
+        key_pattern: ^[A-Za-z][A-Za-z0-9_.-]*$
+        values: {ref: binding}
+      parameters:
+        type: mapping
+        values: {type: data}
+      note: {type: string}
+  binding:
+    type: mapping
+    properties:
+      input: {ref: id}
+      model: {type: string, enum: [target]}
+      sheet: {ref: id}
+      field: {ref: id}
+      fields:
+        type: sequence
+        min_items: 1
+        items: {ref: id}
+      within: {ref: id}
