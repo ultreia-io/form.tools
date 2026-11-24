@@ -24,6 +24,7 @@ Consumers supply the form model, source data and matching workbook templates.
 
 **Table loading**
 
+- Read typed CSV tables by model sheet and field name, preserving leading zeros and empty text.
 - Read one SQL query per model sheet, including names such as `schema.table.sql`.
 - Use a caller-owned database connection through `db.tools`, or supply a consumer backend.
 - Bind query parameters with the database driver and preserve its returned values and types.

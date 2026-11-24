@@ -9,9 +9,12 @@ The files organize functions in one package namespace. You do not source each fi
 | File                   | Responsibility                                                          |
 | ---------------------- | ----------------------------------------------------------------------- |
 | `split.R`              | Select related records and publish split workbooks.                     |
-| `read.R`               | Load model tables through SQL files and a supplied backend.             |
+| `read.R`               | Load model tables from CSV files or through a SQL backend.              |
+| `export.R`             | Prepare and run export rules across source and target form models.      |
+| `export-schema.R`      | Read and check YAML export configurations against the versioned schema. |
 | `write.R`              | Encode typed data and write forms using model-defined field names.      |
 | `workbook.R`           | Read XLSX parts and populate templates while preserving workbook parts. |
+| `arguments.R`          | Check function arguments.                                               |
 | `form.tools-package.R` | Provide package-level documentation.                                    |
 
 Workbook operations consume `form.model` through its public API.
@@ -20,6 +23,8 @@ Workbook operations consume `form.model` through its public API.
 `read_form_tables()` selects SQL files using the form model and checks the returned columns.
 
 `sql_table_loader()` delegates query execution and parameter binding to `db.tools`.
+
+`read_form_csv_tables()` reads CSV fields as text and converts columns using the form model.
 
 The SQL example and integration tests use in-memory SQLite databases through `RSQLite`.
 

@@ -7,7 +7,7 @@ vignette: >
   %\VignetteEncoding{UTF-8}
 ---
 
-This article collects the models, workbook templates and SQL files used in the guides.
+This article collects the models, export configuration, workbook templates and SQL files used in the guides.
 
 Use [Getting started](form.tools.html) for workbook operations and [Load tables from SQL](sql-loading.html) for loading.
 
@@ -41,10 +41,11 @@ workbook_resources_directory <- system.file("examples", "survey", package = "for
 ```{r resources-downloads, echo=FALSE, results='asis'}
 # Describe the packaged SQL files and the shared workbook resources.
 resources <- data.frame(
-  File = c("form-source.yaml", "queries/surveys.sql", "queries/observations.sql", "README.md",
+  File = c("form-source.yaml", "export.yaml", "queries/surveys.sql", "queries/observations.sql", "README.md",
     "form.yaml", "form.xlsx", "form-empty.xlsx"),
-  Package = c(rep("form.tools", 4L), rep("form.model", 3L)),
-  Purpose = c("Source table model for SQL loading.", "Select the requested survey.",
+  Package = c(rep("form.tools", 5L), rep("form.model", 3L)),
+  Purpose = c("Source table model for SQL loading.", "Row and field rules for an export preview.",
+    "Select the requested survey.",
     "Select its related observations.", "Directory layout and usage notes.",
     "Workbook model for writing and splitting.", "Populated workbook to split.",
     "Empty template for output workbooks."))
@@ -74,9 +75,15 @@ The source and workbook models illustrate separate operations. They do not defin
 
 Both example YAML files declare `schema_version: "1.0.0"` and are read with `form.model::read_form_model()`.
 
-Schema documentation belongs to [form.model][form-model-schema]; this package does not define another schema.
+See [form.model][form-model-schema] for the form model schema.
 
 [form-model-schema]: https://ultreia-io.github.io/form.model/articles/form.model.html
+
+## Export configuration schema
+
+`read_form_export()` checks the survey's `export.yaml` against the schema selected by its `schema_version`.
+
+`export_schema()` exposes that contract. `prepare_form_export()` checks the plan against the models and callbacks.
 
 ## SQL query contract
 
