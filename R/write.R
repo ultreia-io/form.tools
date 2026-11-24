@@ -40,7 +40,7 @@
 #'   are removed on failure; no partial destination is published.
 #' @export
 write_form_workbook <- function(data, model, template, path) {
-  tool_text(path, "path")
+  require_nonempty_string(path, "path")
   if (!grepl("[.]xlsx$", path, ignore.case = TRUE)) stop("Output must be an .xlsx file", call. = FALSE)
   existing_link <- Sys.readlink(path)
   if (file.exists(path) || dir.exists(path) || (!is.na(existing_link) && nzchar(existing_link)))
@@ -86,6 +86,7 @@ write_form_workbook <- function(data, model, template, path) {
     sheet_definition <- sheet_definitions[[sheet_name]]
     encoded_columns <- encoded_sheets[[sheet_name]]
     names(encoded_columns) <- names(sheet_definition$fields)
+    # Read the encoded value for each modeled cell.
     value_at <- function(row, column, field) {
       data_row <- if (sheet_definition$layout$kind == "cells") 1L else row
       encoded_columns[[field]][[data_row]]
@@ -148,6 +149,7 @@ check_write_fixed_cells <- function(pattern, definition, name) {
 #' @return List of encoded cell values; missing values are NULL.
 #' @keywords internal
 encode_form_column <- function(values, type, date1904, label) {
+  # Identify the field when reporting invalid values.
   fail <- function(message) stop(label, ": ", message, call. = FALSE)
   valid <- switch(type,
     string = is.character(values) && !is.object(values),

@@ -43,8 +43,8 @@
 #' @export
 split_form_workbook <- function(path, model, root_sheet, template, directory,
                                 shared_sheets = character()) {
-  tool_text(root_sheet, "root_sheet")
-  tool_text(directory, "directory")
+  require_nonempty_string(root_sheet, "root_sheet")
+  require_nonempty_string(directory, "directory")
   model <- form.model::as_form_model(form.model::form_definition(model))
   definitions <- form.model::form_sheets(model)
   if (!root_sheet %in% names(definitions)) stop("Unknown root sheet", call. = FALSE)

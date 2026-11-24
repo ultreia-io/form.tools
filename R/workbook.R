@@ -13,7 +13,7 @@
 #'   The source archive is unchanged; extracted files remain until caller cleanup.
 #' @keywords internal
 xlsx_read <- function(path, directory) {
-  tool_text(path, "workbook path")
+  require_nonempty_string(path, "workbook path")
   if (!file.exists(path) || dir.exists(path) || !grepl("[.]xlsx$", path, ignore.case = TRUE))
     stop("Expected an existing .xlsx file: ", path, call. = FALSE)
   path <- normalizePath(path, mustWork = TRUE)
@@ -161,6 +161,7 @@ xlsx_key <- function(sheet, rows, columns, label) {
 #'   Formula-bearing fixed template fields and excessive output extents raise errors.
 #' @keywords internal
 write_split_sheet <- function(source, pattern, definition, rows, destination, number_formats) {
+  # Look up each cell in the source sheet.
   value_at <- function(row, column, field) xlsx_value(source, row, column)
   write_template_sheet(pattern, definition, rows, destination, number_formats, value_at)
 }
@@ -532,15 +533,4 @@ xlsx_column <- function(number) {
 #' @keywords internal
 xlsx_blank <- function(value) {
   is.null(value) || !nzchar(value$value)
-}
-
-#' Validate a required text argument
-#' @param value Candidate scalar character value; missing or empty text is rejected.
-#' @param name Argument name used in the error message.
-#' @return The unchanged string. Invalid arguments raise an error.
-#' @keywords internal
-tool_text <- function(value, name) {
-  if (!is.character(value) || length(value) != 1L || is.na(value) || !nzchar(value))
-    stop(name, " must be a non-empty string", call. = FALSE)
-  value
 }

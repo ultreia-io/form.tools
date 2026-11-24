@@ -31,7 +31,7 @@
 read_form_tables <- function(model, queries_directory, table_loader, params = NULL) {
   model <- form.model::as_form_model(form.model::form_definition(model))
   definitions <- form.model::form_sheets(model)
-  tool_text(queries_directory, "queries_directory")
+  require_nonempty_string(queries_directory, "queries_directory")
   if (!dir.exists(queries_directory)) stop("Query directory does not exist", call. = FALSE)
   if (!is.function(table_loader)) stop("table_loader must be a function", call. = FALSE)
   if (!is.null(params) && (!is.list(params) || is.data.frame(params)))
