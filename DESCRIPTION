@@ -17,7 +17,7 @@ URL: https://ultreia-io.github.io/form.tools/,
 BugReports: https://github.com/ultreia-io/form.tools/issues
 Encoding: UTF-8
 Depends: R (>= 4.1.0)
-Imports: DBI, db.tools (>= 0.1.2), form.model (>= 0.6.2), xml2, zip
+Imports: DBI, db.tools (>= 0.1.2), form.model (>= 0.6.2), xml2, yaml, zip
 Suggests: knitr, readxl, rmarkdown, RSQLite, testthat (>= 3.0.0), withr
 Remotes: ultreia-io/db.tools@0.1.2
 VignetteBuilder: knitr
