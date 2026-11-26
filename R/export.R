@@ -27,7 +27,10 @@
 #'   leaves a cell blank or a table empty. The statuses `"pending"` and
 #'   `"unavailable"` are reported when encountered. Inactive rules are not bound.
 #'
-#'   An input can name a source `sheet` and optionally a `field` or `fields`.
+#'   A field rule's source inputs default to the sheet named in
+#'   `rows.inputs.records.sheet`. Set `sheet` to read from a different source
+#'   sheet. Source inputs to row rules name their sheet explicitly.
+#'   A source input can select a `field` or `fields`.
 #'   The engine reads the current record or follows parent keys to an ancestor.
 #'   Add `within` to select related records under the current record or its
 #'   named ancestor. A `field` binding returns a vector; a sheet or `fields`
@@ -286,7 +289,7 @@ prepare_export_rule <- function(rule, anchor, source, target, rules, label, fiel
   export_mapping(rule$parameters, paste(label, "parameters"))
   for (name in names(rule$inputs))
     rule$inputs[[name]] <- prepare_export_binding(rule$inputs[[name]], anchor, source, target,
-      paste(label, name))
+      paste(label, name), default_sheet = if (!is.null(field)) anchor)
   rule
 }
 
@@ -295,9 +298,10 @@ prepare_export_rule <- function(rule, anchor, source, target, rules, label, fiel
 #' @param anchor Starting source sheet.
 #' @param source,target Source and target sheet definitions.
 #' @param label Location shown in errors.
+#' @param default_sheet Fallback for a field rule's source input with no sheet.
 #' @return Prepared input binding.
 #' @keywords internal
-prepare_export_binding <- function(binding, anchor, source, target, label) {
+prepare_export_binding <- function(binding, anchor, source, target, label, default_sheet = NULL) {
   export_mapping(binding, label)
   if (!is.null(binding$input)) {
     check_write_names(binding, "input", label)
@@ -314,6 +318,7 @@ prepare_export_binding <- function(binding, anchor, source, target, label) {
   }
   if (!all(names(binding) %in% c("sheet", "field", "fields", "within")))
     stop(label, ": unsupported source binding", call. = FALSE)
+  if (!"sheet" %in% names(binding)) binding$sheet <- default_sheet
   require_nonempty_string(binding$sheet, label)
   if (!binding$sheet %in% names(source)) stop(label, ": unknown source sheet", call. = FALSE)
   field <- binding[["field"]]

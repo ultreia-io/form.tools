@@ -41,7 +41,10 @@ bind \code{records} to a source sheet. The status \code{"omitted"}
 leaves a cell blank or a table empty. The statuses \code{"pending"} and
 \code{"unavailable"} are reported when encountered. Inactive rules are not bound.
 
-An input can name a source \code{sheet} and optionally a \code{field} or \code{fields}.
+A field rule's source inputs default to the sheet named in
+\code{rows.inputs.records.sheet}. Set \code{sheet} to read from a different source
+sheet. Source inputs to row rules name their sheet explicitly.
+A source input can select a \code{field} or \code{fields}.
 The engine reads the current record or follows parent keys to an ancestor.
 Add \code{within} to select related records under the current record or its
 named ancestor. A \code{field} binding returns a vector; a sheet or \code{fields}

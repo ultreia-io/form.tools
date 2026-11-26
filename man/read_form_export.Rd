@@ -29,6 +29,8 @@ Field declarations default to \code{status: specified}. An active field
 declaration without \code{rule} uses its field name. Active row declarations
 name their rule explicitly. \code{\link[=prepare_form_export]{prepare_form_export()}} checks that each
 active rule has a registered callback.
+A field rule's source input can omit \code{sheet} to use the row source sheet
+at \code{rows.inputs.records.sheet}.
 Uses YAML 1.1 types. Quote version strings and identifiers that could be
 parsed as numbers or booleans. Tags, anchors, aliases, merges, directives
 and document markers are unsupported.

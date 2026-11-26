@@ -30,6 +30,8 @@ export_schema <- function(version = "1.0.0") {
 #'   declaration without `rule` uses its field name. Active row declarations
 #'   name their rule explicitly. [prepare_form_export()] checks that each
 #'   active rule has a registered callback.
+#'   A field rule's source input can omit `sheet` to use the row source sheet
+#'   at `rows.inputs.records.sheet`.
 #'   Uses YAML 1.1 types. Quote version strings and identifiers that could be
 #'   parsed as numbers or booleans. Tags, anchors, aliases, merges, directives
 #'   and document markers are unsupported.
@@ -272,7 +274,7 @@ check_export_declaration <- function(rule, resource, path, field = NULL) {
       if (!setequal(keys, c("model", "sheet", "field")))
         abort_export_yaml(resource, location, "target field binding requires model, sheet and field")
     } else {
-      if (!"sheet" %in% keys)
+      if (is.null(field) && !"sheet" %in% keys)
         abort_export_yaml(resource, location, "source binding requires a sheet")
       if (all(c("field", "fields") %in% keys) || anyDuplicated(unlist(binding$fields)))
         abort_export_yaml(resource, location, "supply one field or a list of distinct fields")

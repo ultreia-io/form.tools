@@ -4,7 +4,14 @@
 \alias{prepare_export_binding}
 \title{Check a declared input and prepare its source or target lookup.}
 \usage{
-prepare_export_binding(binding, anchor, source, target, label)
+prepare_export_binding(
+  binding,
+  anchor,
+  source,
+  target,
+  label,
+  default_sheet = NULL
+)
 }
 \arguments{
 \item{binding}{Input declaration.}
@@ -14,6 +21,8 @@ prepare_export_binding(binding, anchor, source, target, label)
 \item{source, target}{Source and target sheet definitions.}
 
 \item{label}{Location shown in errors.}
+
+\item{default_sheet}{Fallback for a field rule's source input with no sheet.}
 }
 \value{
 Prepared input binding.
