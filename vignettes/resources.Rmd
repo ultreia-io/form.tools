@@ -88,6 +88,9 @@ See [form.model][form-model-schema] for the form model schema.
 An unspecified field status defaults to `specified`. An active field uses its exact name as the callback
 name when `rule` is absent. Row declarations name their callback explicitly.
 
+`run_form_export()` accepts an optional `finalize` function. It receives the assembled result and
+the caller's resources, and returns the final export result.
+
 ## SQL query contract
 
 - Supply one `<sheet>.sql` file per model sheet; a sheet named `schema.table` uses `schema.table.sql`.
