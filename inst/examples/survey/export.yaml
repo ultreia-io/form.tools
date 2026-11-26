@@ -18,4 +18,4 @@ sheets:
         status: specified
         rule: copy
         inputs:
-          value: {sheet: observations, field: count}
+          value: {field: count}
