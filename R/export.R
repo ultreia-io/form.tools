@@ -116,6 +116,8 @@ prepare_form_export <- function(source_model, target_model, root_sheet, sheets, 
 #'   produce diagnostics. Missing optional fields are left blank.
 #' @param resources Caller-supplied resources for callbacks, such as prepared
 #'   reference lookups or shared identifiers.
+#' @param finalize Optional function called once with the assembled export result
+#'   and `resources`. Return the result to deliver to the caller.
 #' @return A list containing `tables`, a `diagnostics` data frame, `source_rows`
 #'   mapping target rows to their source keys, `preserve_fields` for the writer,
 #'   and `ready_to_write`. The latter
@@ -130,10 +132,13 @@ prepare_form_export <- function(source_model, target_model, root_sheet, sheets, 
 #'   as lookup candidates. A failed field is represented by a typed missing
 #'   value. The result can be inspected before calling [write_form_workbook()].
 #'   Required fields and target business rules are checked by form validation.
+#'   The finalizer receives all target tables and any diagnostics from the rules.
 #' @export
-run_form_export <- function(plan, data, inputs = list(), resources = list()) {
+run_form_export <- function(plan, data, inputs = list(), resources = list(), finalize = NULL) {
   if (!inherits(plan, "form_export_plan"))
     stop("Use prepare_form_export() to prepare the plan", call. = FALSE)
+  if (!is.null(finalize) && !is.function(finalize))
+    stop("finalize must be a function or NULL", call. = FALSE)
   export_mapping(inputs, "inputs")
   source <- index_export_data(plan$source, data, plan$root_sheet)
   identity_cache <- new.env(parent = emptyenv())
@@ -183,9 +188,11 @@ run_form_export <- function(plan, data, inputs = list(), resources = list()) {
   prototype <- data.frame(sheet = character(), field = character(), row = integer(),
     rule = character(), status = character(), message = character(),
     source_keys = I(list()), details = I(list()))
-  list(tables = tables, diagnostics = do.call(rbind, c(list(prototype), diagnostics)),
+  export_result <- list(tables = tables, diagnostics = do.call(rbind, c(list(prototype), diagnostics)),
     source_rows = lineage, preserve_fields = preserve_fields,
     ready_to_write = length(tables) == length(plan$target) && !length(diagnostics))
+  if (is.null(finalize)) return(export_result)
+  finalize(export_result, resources)
 }
 
 # Internal helpers ----------------------------------------------------------

@@ -4,7 +4,13 @@
 \alias{run_form_export}
 \title{Transform one extracted dataset into target form tables}
 \usage{
-run_form_export(plan, data, inputs = list(), resources = list())
+run_form_export(
+  plan,
+  data,
+  inputs = list(),
+  resources = list(),
+  finalize = NULL
+)
 }
 \arguments{
 \item{plan}{Result of \code{\link[=prepare_form_export]{prepare_form_export()}}.}
@@ -20,6 +26,9 @@ produce diagnostics. Missing optional fields are left blank.}
 
 \item{resources}{Caller-supplied resources for callbacks, such as prepared
 reference lookups or shared identifiers.}
+
+\item{finalize}{Optional function called once with the assembled export result
+and \code{resources}. Return the result to deliver to the caller.}
 }
 \value{
 A list containing \code{tables}, a \code{diagnostics} data frame, \code{source_rows}
@@ -41,4 +50,5 @@ field or target row yet. Callbacks may return an unresolved status with details 
 as lookup candidates. A failed field is represented by a typed missing
 value. The result can be inspected before calling \code{\link[=write_form_workbook]{write_form_workbook()}}.
 Required fields and target business rules are checked by form validation.
+The finalizer receives all target tables and any diagnostics from the rules.
 }
