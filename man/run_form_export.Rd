@@ -13,14 +13,18 @@ run_form_export(plan, data, inputs = list(), resources = list())
 table must contain exactly one record. Key columns must identify their rows
 and refer to existing parent rows.}
 
-\item{inputs}{Named values used by caller input bindings.}
+\item{inputs}{Named values used by caller input bindings. A sheet with
+\code{fields_from: section} reads the named list at \code{inputs$section} and matches
+its writable fields by name. Missing required fields and invalid types
+produce diagnostics. Missing optional fields are left blank.}
 
 \item{resources}{Caller-supplied resources for callbacks, such as prepared
 reference lookups or shared identifiers.}
 }
 \value{
 A list containing \code{tables}, a \code{diagnostics} data frame, \code{source_rows}
-mapping target rows to their source keys, and \code{ready_to_write}. The latter
+mapping target rows to their source keys, \code{preserve_fields} for the writer,
+and \code{ready_to_write}. The latter
 is true when all target sheets ran without export diagnostics.
 }
 \description{
@@ -29,8 +33,11 @@ Transform one extracted dataset into target form tables
 \details{
 Callbacks receive the target sheet, field and row in \code{context},
 together with \code{source_keys}, caller \code{resources} and completed
-\code{target_tables}. Row callbacks receive the same context with no field or
-target row yet. Callbacks may return an unresolved status with details such
+\code{target_tables}. Field callbacks can read earlier values of the current
+row in \code{context$target_row}. Fields run in target form model order.
+An empty \code{identity_cache} environment is shared by
+callbacks within each run. Row callbacks receive the same context with no
+field or target row yet. Callbacks may return an unresolved status with details such
 as lookup candidates. A failed field is represented by a typed missing
 value. The result can be inspected before calling \code{\link[=write_form_workbook]{write_form_workbook()}}.
 Required fields and target business rules are checked by form validation.

@@ -12,7 +12,10 @@ prepare_form_export(source_model, target_model, root_sheet, sheets, rules)
 \item{root_sheet}{Name of the source table containing one selected root record.}
 
 \item{sheets}{Named list of target sheet declarations. Each declaration has
-\code{rows} and \code{fields}, with one named field declaration per target field.
+\code{rows} and \code{fields}, with one declaration per writable field. A fixed-cell
+sheet can use \code{fields_from} in place of \code{rows} and \code{fields} to populate one
+block from a named caller input section. Use \code{preserve_fields} to keep
+named template cells.
 Use \code{sheets} from \code{\link[=read_form_export]{read_form_export()}} or supply a subset of target sheets.}
 
 \item{rules}{Named list of R functions called with \code{inputs}, \code{context} and
@@ -30,9 +33,11 @@ A prepared plan for \code{\link[=run_form_export]{run_form_export()}}.
 Bind table and field declarations to supplied R callbacks before processing data.
 }
 \details{
-Each row or field declaration supplies a \code{status}. A \code{"specified"}
-declaration names a \code{rule} and may supply named \code{inputs} and \code{parameters}.
-A row rule must bind \code{records} to a source sheet. The status \code{"omitted"}
+Field declarations default to \code{"specified"} and use the exact
+target field name as the callback name when \code{rule} is absent. A named
+\code{rule} overrides that default. Active rules may supply named \code{inputs}
+and \code{parameters}. An active row declaration must name its rule and
+bind \code{records} to a source sheet. The status \code{"omitted"}
 leaves a cell blank or a table empty. The statuses \code{"pending"} and
 \code{"unavailable"} are reported when encountered. Inactive rules are not bound.
 

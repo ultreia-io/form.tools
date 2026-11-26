@@ -6,7 +6,10 @@
 #' @param source_model,target_model Checked form models from form.model.
 #' @param root_sheet Name of the source table containing one selected root record.
 #' @param sheets Named list of target sheet declarations. Each declaration has
-#'   `rows` and `fields`, with one named field declaration per target field.
+#'   `rows` and `fields`, with one declaration per writable field. A fixed-cell
+#'   sheet can use `fields_from` in place of `rows` and `fields` to populate one
+#'   block from a named caller input section. Use `preserve_fields` to keep
+#'   named template cells.
 #'   Use `sheets` from [read_form_export()] or supply a subset of target sheets.
 #' @param rules Named list of R functions called with `inputs`, `context` and
 #'   `parameters`. Row rules receive a data frame as `inputs$records`. They
@@ -16,9 +19,11 @@
 #'   `message` and `details`. Use `"resolved"` with a value or `"omitted"` for
 #'   an intentional blank. Other statuses produce diagnostics.
 #' @return A prepared plan for [run_form_export()].
-#' @details Each row or field declaration supplies a `status`. A `"specified"`
-#'   declaration names a `rule` and may supply named `inputs` and `parameters`.
-#'   A row rule must bind `records` to a source sheet. The status `"omitted"`
+#' @details Field declarations default to `"specified"` and use the exact
+#'   target field name as the callback name when `rule` is absent. A named
+#'   `rule` overrides that default. Active rules may supply named `inputs`
+#'   and `parameters`. An active row declaration must name its rule and
+#'   bind `records` to a source sheet. The status `"omitted"`
 #'   leaves a cell blank or a table empty. The statuses `"pending"` and
 #'   `"unavailable"` are reported when encountered. Inactive rules are not bound.
 #'
@@ -66,21 +71,34 @@ prepare_form_export <- function(source_model, target_model, root_sheet, sheets, 
   declarations <- lapply(intersect(names(target), names(sheets)), function(sheet_name) {
     definition <- sheets[[sheet_name]]
     export_mapping(definition, sheet_name)
-    check_write_names(definition$fields, names(target[[sheet_name]]$fields), paste(sheet_name, "fields"))
+    preserve_fields <- definition$preserve_fields
+    if (is.list(preserve_fields)) preserve_fields <- vapply(preserve_fields, identity, character(1))
+    writable <- writable_form_fields(target[[sheet_name]], preserve_fields, sheet_name)
+    fields_from <- definition[["fields_from"]]
+    if (!is.null(fields_from)) {
+      require_nonempty_string(fields_from, paste(sheet_name, "fields_from"))
+      if (target[[sheet_name]]$layout$kind != "cells")
+        stop(sheet_name, ": fields_from requires a fixed-cell sheet", call. = FALSE)
+      if (any(c("rows", "fields") %in% names(definition)))
+        stop(sheet_name, ": fields_from cannot be combined with rows or fields", call. = FALSE)
+      return(list(name = sheet_name, fields_from = fields_from, fields = writable,
+        preserve_fields = preserve_fields))
+    }
+    check_write_names(definition$fields, names(writable), paste(sheet_name, "fields"))
     rows <- prepare_export_rule(definition$rows, root_sheet, source, target, rules,
       paste(sheet_name, "rows"))
     if (rows$status == "omitted" && target[[sheet_name]]$layout$kind == "cells")
       stop(sheet_name, " cannot omit the row of a fixed-cell sheet", call. = FALSE)
-    fields <- definition$fields[names(target[[sheet_name]]$fields)]
+    fields <- definition$fields[names(writable)]
     if (rows$status == "specified") {
       records <- rows$inputs[["records"]]
       if (is.null(records$sheet) || !is.null(records[["field"]]))
         stop(sheet_name, " rows must bind records to a source data frame", call. = FALSE)
       for (name in names(fields))
         fields[[name]] <- prepare_export_rule(fields[[name]], records$sheet, source, target, rules,
-          paste(sheet_name, name, sep = "."))
+          paste(sheet_name, name, sep = "."), field = name)
     }
-    list(name = sheet_name, rows = rows, fields = fields)
+    list(name = sheet_name, rows = rows, fields = fields, preserve_fields = preserve_fields)
   })
   structure(list(source = source, target = target, root_sheet = root_sheet,
     declarations = declarations), class = "form_export_plan")
@@ -92,16 +110,23 @@ prepare_form_export <- function(source_model, target_model, root_sheet, sheets, 
 #' @param data Named list of source data frames, one per source sheet. The root
 #'   table must contain exactly one record. Key columns must identify their rows
 #'   and refer to existing parent rows.
-#' @param inputs Named values used by caller input bindings.
+#' @param inputs Named values used by caller input bindings. A sheet with
+#'   `fields_from: section` reads the named list at `inputs$section` and matches
+#'   its writable fields by name. Missing required fields and invalid types
+#'   produce diagnostics. Missing optional fields are left blank.
 #' @param resources Caller-supplied resources for callbacks, such as prepared
 #'   reference lookups or shared identifiers.
 #' @return A list containing `tables`, a `diagnostics` data frame, `source_rows`
-#'   mapping target rows to their source keys, and `ready_to_write`. The latter
+#'   mapping target rows to their source keys, `preserve_fields` for the writer,
+#'   and `ready_to_write`. The latter
 #'   is true when all target sheets ran without export diagnostics.
 #' @details Callbacks receive the target sheet, field and row in `context`,
 #'   together with `source_keys`, caller `resources` and completed
-#'   `target_tables`. Row callbacks receive the same context with no field or
-#'   target row yet. Callbacks may return an unresolved status with details such
+#'   `target_tables`. Field callbacks can read earlier values of the current
+#'   row in `context$target_row`. Fields run in target form model order.
+#'   An empty `identity_cache` environment is shared by
+#'   callbacks within each run. Row callbacks receive the same context with no
+#'   field or target row yet. Callbacks may return an unresolved status with details such
 #'   as lookup candidates. A failed field is represented by a typed missing
 #'   value. The result can be inspected before calling [write_form_workbook()].
 #'   Required fields and target business rules are checked by form validation.
@@ -111,15 +136,25 @@ run_form_export <- function(plan, data, inputs = list(), resources = list()) {
     stop("Use prepare_form_export() to prepare the plan", call. = FALSE)
   export_mapping(inputs, "inputs")
   source <- index_export_data(plan$source, data, plan$root_sheet)
-  tables <- lineage <- diagnostics <- list()
+  identity_cache <- new.env(parent = emptyenv())
+  tables <- lineage <- diagnostics <- preserve_fields <- list()
   for (declaration in plan$declarations) {
     sheet <- declaration$name
-    fields <- plan$target[[sheet]]$fields
+    if (length(declaration$preserve_fields)) preserve_fields[[sheet]] <- declaration$preserve_fields
+    context <- list(sheet = sheet, field = NA_character_, row = NA_integer_,
+      source_keys = NULL, resources = resources, target_tables = tables,
+      identity_cache = identity_cache)
+    if (!is.null(declaration$fields_from)) {
+      block <- evaluate_export_input_block(declaration, inputs, context)
+      tables[[sheet]] <- block$table
+      lineage[[sheet]] <- list(NULL)
+      diagnostics <- c(diagnostics, block$diagnostics)
+      next
+    }
+    fields <- plan$target[[sheet]]$fields[names(declaration$fields)]
     row_rule <- declaration$rows
     root <- list(sheet = plan$root_sheet, rows = 1L)
-    context <- list(sheet = sheet, field = NA_character_, row = NA_integer_,
-      source_keys = export_source_keys(source, root), resources = resources,
-      target_tables = tables)
+    context$source_keys <- export_source_keys(source, root)
     selection <- evaluate_export_rows(row_rule, source, root, inputs, context,
       plan$target[[sheet]]$layout$kind)
     if (!is.null(selection$problem))
@@ -130,6 +165,7 @@ run_form_export <- function(plan, data, inputs = list(), resources = list()) {
     for (row in seq_along(groups)) {
       context$row <- row
       context$source_keys <- lineage[[sheet]][[row]]
+      context$target_row <- list()
       for (name in names(fields)) {
         rule <- declaration$fields[[name]]
         context$field <- name
@@ -137,19 +173,59 @@ run_form_export <- function(plan, data, inputs = list(), resources = list()) {
         if (!is.null(result$problem))
           diagnostics[[length(diagnostics) + 1L]] <- export_diagnostic(context, rule, result$problem)
         columns[[name]][row] <- result$value
+        context$target_row[[name]] <- result$value
       }
     }
-    tables[[sheet]] <- as.data.frame(columns, check.names = FALSE, stringsAsFactors = FALSE)
+    tables[[sheet]] <- if (!length(columns)) data.frame(row.names = seq_along(groups)) else
+      as.data.frame(columns, row.names = seq_along(groups),
+                                     check.names = FALSE, stringsAsFactors = FALSE)
   }
   prototype <- data.frame(sheet = character(), field = character(), row = integer(),
     rule = character(), status = character(), message = character(),
     source_keys = I(list()), details = I(list()))
   list(tables = tables, diagnostics = do.call(rbind, c(list(prototype), diagnostics)),
-    source_rows = lineage,
+    source_rows = lineage, preserve_fields = preserve_fields,
     ready_to_write = length(tables) == length(plan$target) && !length(diagnostics))
 }
 
 # Internal helpers ----------------------------------------------------------
+
+#' Fill one fixed-cell block from a named caller input section
+#' @param declaration Prepared fixed-cell sheet declaration.
+#' @param inputs Named caller inputs.
+#' @param context Target location for diagnostics.
+#' @return One data frame row and any diagnostics for its fields.
+#' @keywords internal
+evaluate_export_input_block <- function(declaration, inputs, context) {
+  section <- declaration$fields_from
+  values <- inputs[[section]]
+  export_mapping(values, paste0("inputs.", section))
+  fields <- declaration$fields
+  table <- data.frame(row.names = 1L)
+  diagnostics <- list()
+  context$row <- 1L
+  for (name in names(fields)) {
+    field <- fields[[name]]
+    value <- values[[name]]
+    scalar <- is.atomic(value) && length(value) == 1L && is.null(dim(value))
+    missing <- is.null(value) || (scalar &&
+      ((is.na(value) && !(is.numeric(value) && is.nan(value))) ||
+        (is.character(value) && !nzchar(trimws(value)))))
+    if (!missing && export_scalar(value, field$type)) {
+      table[[name]] <- value
+      next
+    }
+    table[[name]] <- export_missing_value(field$type)
+    if (missing && !isTRUE(field$mandatory)) next
+    label <- paste0("inputs.", section, ".", name)
+    problem <- if (missing) export_problem("missing_value", paste(label, "is required")) else
+      export_problem("invalid_value", paste(label, "must contain one value of type", field$type))
+    context$field <- name
+    diagnostics[[length(diagnostics) + 1L]] <-
+      export_diagnostic(context, list(rule = "fields_from"), problem)
+  }
+  list(table = table, diagnostics = diagnostics)
+}
 
 #' Require a named list with unique, nonempty keys.
 #' @param value Object to check.
@@ -163,16 +239,31 @@ export_mapping <- function(value, label) {
     stop(label, " must be a named list", call. = FALSE)
 }
 
+#' Supply export rule defaults for a row or field
+#' @param rule Row or field declaration.
+#' @param field Target field name, or `NULL` for a row declaration.
+#' @return The declaration with its default status and field rule filled in.
+#' @keywords internal
+apply_export_rule_defaults <- function(rule, field = NULL) {
+  if (!"status" %in% names(rule) && (!is.null(field) || !is.null(rule[["rule"]])))
+    rule$status <- "specified"
+  if (!is.null(field) && identical(rule[["status"]], "specified") && !"rule" %in% names(rule))
+    rule$rule <- field
+  rule
+}
+
 #' Bind an active declaration to its callback and resolve its input paths.
 #' @param rule Export declaration.
 #' @param anchor Starting source sheet.
 #' @param source,target Source and target sheet definitions.
 #' @param rules Named callback registry.
 #' @param label Location shown in errors.
+#' @param field Target field name, or `NULL` for a row declaration.
 #' @return Declaration with its callback and prepared inputs.
 #' @keywords internal
-prepare_export_rule <- function(rule, anchor, source, target, rules, label) {
+prepare_export_rule <- function(rule, anchor, source, target, rules, label, field = NULL) {
   export_mapping(rule, label)
+  rule <- apply_export_rule_defaults(rule, field)
   require_nonempty_string(rule$status, paste(label, "status"))
   if (!rule$status %in% c("specified", "pending", "unavailable", "omitted"))
     stop(label, ": unknown export status ", rule$status, call. = FALSE)

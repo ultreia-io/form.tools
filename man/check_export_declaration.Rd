@@ -4,17 +4,17 @@
 \alias{check_export_declaration}
 \title{Check the rule name and allowed combinations of input properties.}
 \usage{
-check_export_declaration(rule, resource, path, rows = FALSE)
+check_export_declaration(rule, resource, path, field = NULL)
 }
 \arguments{
 \item{rule}{Rule declaration.}
 
 \item{resource, path}{Source label and location for errors.}
 
-\item{rows}{Whether the declaration selects rows.}
+\item{field}{Target field name, or \code{NULL} for a row declaration.}
 }
 \value{
-Returns silently or raises a declaration error.
+The checked declaration with its defaults filled in.
 }
 \description{
 Check the rule name and allowed combinations of input properties.

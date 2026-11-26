@@ -4,7 +4,7 @@
 \alias{prepare_export_rule}
 \title{Bind an active declaration to its callback and resolve its input paths.}
 \usage{
-prepare_export_rule(rule, anchor, source, target, rules, label)
+prepare_export_rule(rule, anchor, source, target, rules, label, field = NULL)
 }
 \arguments{
 \item{rule}{Export declaration.}
@@ -16,6 +16,8 @@ prepare_export_rule(rule, anchor, source, target, rules, label)
 \item{rules}{Named callback registry.}
 
 \item{label}{Location shown in errors.}
+
+\item{field}{Target field name, or \code{NULL} for a row declaration.}
 }
 \value{
 Declaration with its callback and prepared inputs.

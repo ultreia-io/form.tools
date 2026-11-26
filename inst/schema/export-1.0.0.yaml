@@ -22,16 +22,19 @@ definitions:
         values: {ref: sheet}
   sheet:
     type: mapping
-    required: [rows, fields]
     properties:
       rows: {ref: rule}
+      fields_from: {ref: id}
+      preserve_fields:
+        type: sequence
+        min_items: 1
+        items: {ref: id}
       fields:
         type: mapping
         key_pattern: ^[A-Za-z][A-Za-z0-9_.-]*$
         values: {ref: rule}
   rule:
     type: mapping
-    required: [status]
     properties:
       status: {type: string, enum: [specified, pending, unavailable, omitted]}
       rule: {ref: id}

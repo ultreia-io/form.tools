@@ -24,6 +24,12 @@ export_schema <- function(version = "1.0.0") {
 #' @details The configuration selects its schema using `schema_version`.
 #'   The caller supplies the source and target models and the rule callbacks to
 #'   [prepare_form_export()]. Supply the source root and sheets from this list.
+#'   A fixed-cell sheet may use `fields_from` in place of `rows` and `fields`
+#'   to name the caller input section for all writable fields.
+#'   Field declarations default to `status: specified`. An active field
+#'   declaration without `rule` uses its field name. Active row declarations
+#'   name their rule explicitly. [prepare_form_export()] checks that each
+#'   active rule has a registered callback.
 #'   Uses YAML 1.1 types. Quote version strings and identifiers that could be
 #'   parsed as numbers or booleans. Tags, anchors, aliases, merges, directives
 #'   and document markers are unsupported.
@@ -49,7 +55,7 @@ read_form_export <- function(path, package = NULL) {
   })
   check_export_schema(configuration, schema$definitions[[schema$root]], schema$definitions,
     resource, "$")
-  check_export_declarations(configuration$sheets, resource)
+  configuration$sheets <- check_export_declarations(configuration$sheets, resource)
   configuration
 }
 
@@ -213,28 +219,44 @@ check_export_schema <- function(value, node, definitions, resource, path) {
 #' Check each sheet's row declaration and field declarations.
 #' @param sheets Target sheet declarations.
 #' @param resource Source label for errors.
-#' @return Returns silently or raises a declaration error.
+#' @return Checked declarations with default statuses filled in.
 #' @keywords internal
 check_export_declarations <- function(sheets, resource) {
   for (sheet in names(sheets)) {
     declaration <- sheets[[sheet]]
     path <- paste0("$.sheets.", sheet)
-    check_export_declaration(declaration$rows, resource, paste0(path, ".rows"), rows = TRUE)
+    explicit <- c("rows", "fields")
+    if (!is.null(declaration[["fields_from"]])) {
+      if (any(explicit %in% names(declaration)))
+        abort_export_yaml(resource, path, "fields_from cannot be combined with rows or fields")
+      next
+    }
+    missing <- setdiff(explicit, names(declaration))
+    if (length(missing))
+      abort_export_yaml(resource, paste0(path, ".", missing[[1L]]), "missing required property")
+    declaration$rows <- check_export_declaration(declaration$rows, resource,
+      paste0(path, ".rows"))
     for (field in names(declaration$fields))
-      check_export_declaration(declaration$fields[[field]], resource, paste0(path, ".fields.", field))
+      declaration$fields[[field]] <- check_export_declaration(declaration$fields[[field]], resource,
+        paste0(path, ".fields.", field), field = field)
+    sheets[[sheet]] <- declaration
   }
+  sheets
 }
 
 #' Check the rule name and allowed combinations of input properties.
 #' @param rule Rule declaration.
 #' @param resource,path Source label and location for errors.
-#' @param rows Whether the declaration selects rows.
-#' @return Returns silently or raises a declaration error.
+#' @param field Target field name, or `NULL` for a row declaration.
+#' @return The checked declaration with its defaults filled in.
 #' @keywords internal
-check_export_declaration <- function(rule, resource, path, rows = FALSE) {
+check_export_declaration <- function(rule, resource, path, field = NULL) {
+  rule <- apply_export_rule_defaults(rule, field)
+  if (is.null(rule$status))
+    abort_export_yaml(resource, paste0(path, ".status"), "required when no rule is named")
   if (rule$status == "specified" && is.null(rule$rule))
     abort_export_yaml(resource, paste0(path, ".rule"), "specified declarations require a rule")
-  if (rows && rule$status == "specified") {
+  if (is.null(field) && rule$status == "specified") {
     records <- rule$inputs[["records"]]
     if (is.null(records$sheet) || !is.null(records$model) || !is.null(records[["field"]]))
       abort_export_yaml(resource, paste0(path, ".inputs.records"), "expected a source data frame binding")
@@ -256,4 +278,5 @@ check_export_declaration <- function(rule, resource, path, rows = FALSE) {
         abort_export_yaml(resource, location, "supply one field or a list of distinct fields")
     }
   }
+  rule
 }

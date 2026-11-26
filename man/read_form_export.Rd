@@ -23,6 +23,12 @@ Read and check a YAML export configuration
 The configuration selects its schema using \code{schema_version}.
 The caller supplies the source and target models and the rule callbacks to
 \code{\link[=prepare_form_export]{prepare_form_export()}}. Supply the source root and sheets from this list.
+A fixed-cell sheet may use \code{fields_from} in place of \code{rows} and \code{fields}
+to name the caller input section for all writable fields.
+Field declarations default to \code{status: specified}. An active field
+declaration without \code{rule} uses its field name. Active row declarations
+name their rule explicitly. \code{\link[=prepare_form_export]{prepare_form_export()}} checks that each
+active rule has a registered callback.
 Uses YAML 1.1 types. Quote version strings and identifiers that could be
 parsed as numbers or booleans. Tags, anchors, aliases, merges, directives
 and document markers are unsupported.

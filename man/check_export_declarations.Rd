@@ -12,7 +12,7 @@ check_export_declarations(sheets, resource)
 \item{resource}{Source label for errors.}
 }
 \value{
-Returns silently or raises a declaration error.
+Checked declarations with default statuses filled in.
 }
 \description{
 Check each sheet's row declaration and field declarations.
