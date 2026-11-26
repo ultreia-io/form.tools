@@ -4,11 +4,13 @@
 #'
 #' Place values by form model field names while preserving the template layout.
 #' @param data Named list of data frames, one for every modeled sheet. Each frame
-#'   must contain every field exactly once. Column and sheet order may differ
+#'   must contain every writable field exactly once. Column and sheet order may differ
 #'   from the model. Fixed-cell sheets require one row; tables may have zero rows.
 #' @param model A checked form model supplied by form.model.
 #' @param template Empty XLSX form matching the selected model and version.
 #' @param path New XLSX output path in an existing directory. Never overwritten.
+#' @param preserve_fields Named list of fixed-cell sheets to field names that
+#'   retain their template values. Omit those fields from the input data.
 #' @return The normalized output path, invisibly.
 #' @details Character columns supply string and email fields; logical columns
 #'   supply Boolean fields. Integer and numeric columns supply numeric fields;
@@ -39,7 +41,7 @@
 #'   writes. Filesystems without hard-link support raise an error. Temporary files
 #'   are removed on failure; no partial destination is published.
 #' @export
-write_form_workbook <- function(data, model, template, path) {
+write_form_workbook <- function(data, model, template, path, preserve_fields = list()) {
   require_nonempty_string(path, "path")
   if (!grepl("[.]xlsx$", path, ignore.case = TRUE)) stop("Output must be an .xlsx file", call. = FALSE)
   existing_link <- Sys.readlink(path)
@@ -51,6 +53,13 @@ write_form_workbook <- function(data, model, template, path) {
   model_definition <- form.model::as_form_model(form.model::form_definition(model))
   sheet_definitions <- form.model::form_sheets(model_definition)
   check_write_names(data, names(sheet_definitions), "data")
+  export_mapping(preserve_fields, "preserve_fields")
+  if (any(!names(preserve_fields) %in% names(sheet_definitions)))
+    stop("preserve_fields must identify known sheets", call. = FALSE)
+  for (sheet in names(preserve_fields)) {
+    sheet_definitions[[sheet]]$fields <- writable_form_fields(
+      sheet_definitions[[sheet]], preserve_fields[[sheet]], sheet)
+  }
   workspace <- tempfile("form-write-")
   dir.create(workspace)
   on.exit(unlink(workspace, recursive = TRUE), add = TRUE)
@@ -107,6 +116,23 @@ write_form_workbook <- function(data, model, template, path) {
 
 # Internal helpers ----------------------------------------------------------
 
+#' Select writable fields after checking the preserved fields
+#' @param definition Checked form sheet definition.
+#' @param preserve_fields Character vector of fixed-cell fields to keep.
+#' @param sheet Sheet name for diagnostics.
+#' @return The writable field definitions in model order.
+#' @keywords internal
+writable_form_fields <- function(definition, preserve_fields, sheet) {
+  fields <- definition$fields
+  if (is.null(preserve_fields)) return(fields)
+  if (definition$layout$kind != "cells" || !is.character(preserve_fields) ||
+      anyNA(preserve_fields) || anyDuplicated(preserve_fields) ||
+      any(!preserve_fields %in% names(fields))) {
+    stop(sheet, ": preserve_fields must name distinct fixed-cell fields", call. = FALSE)
+  }
+  fields[setdiff(names(fields), preserve_fields)]
+}
+
 #' Check exact named input coverage
 #' @param data Named list or data frame.
 #' @param expected Required names.
@@ -114,7 +140,7 @@ write_form_workbook <- function(data, model, template, path) {
 #' @return No useful value; invalid names raise an error.
 #' @keywords internal
 check_write_names <- function(data, expected, label) {
-  if (!is.list(data) || is.null(names(data)) || anyNA(names(data)) || anyDuplicated(names(data)) ||
+  if (!is.list(data) || (length(data) && is.null(names(data))) || anyNA(names(data)) || anyDuplicated(names(data)) ||
       !setequal(names(data), expected))
     stop(label, " must contain each modeled name exactly once: ", paste(expected, collapse = ", "), call. = FALSE)
 }

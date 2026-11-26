@@ -4,11 +4,11 @@
 \alias{write_form_workbook}
 \title{Write typed data into an empty form workbook}
 \usage{
-write_form_workbook(data, model, template, path)
+write_form_workbook(data, model, template, path, preserve_fields = list())
 }
 \arguments{
 \item{data}{Named list of data frames, one for every modeled sheet. Each frame
-must contain every field exactly once. Column and sheet order may differ
+must contain every writable field exactly once. Column and sheet order may differ
 from the model. Fixed-cell sheets require one row; tables may have zero rows.}
 
 \item{model}{A checked form model supplied by form.model.}
@@ -16,6 +16,9 @@ from the model. Fixed-cell sheets require one row; tables may have zero rows.}
 \item{template}{Empty XLSX form matching the selected model and version.}
 
 \item{path}{New XLSX output path in an existing directory. Never overwritten.}
+
+\item{preserve_fields}{Named list of fixed-cell sheets to field names that
+retain their template values. Omit those fields from the input data.}
 }
 \value{
 The normalized output path, invisibly.
