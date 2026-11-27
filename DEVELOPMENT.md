@@ -11,6 +11,7 @@ The files organize functions in one package namespace. You do not source each fi
 | `split.R`              | Select related records and publish split workbooks.                     |
 | `read.R`               | Load model tables from CSV files or through a SQL backend.              |
 | `export.R`             | Prepare and run export rules across source and target form models.      |
+| `export-constants.R`   | Define statuses for export declarations, results and diagnostics.       |
 | `export-schema.R`      | Read and check YAML export configurations against the versioned schema. |
 | `write.R`              | Encode typed data and write forms using model-defined field names.      |
 | `workbook.R`           | Read XLSX parts and populate templates while preserving workbook parts. |

@@ -6,7 +6,7 @@ reference:
   - title: Table loading
     contents: [read_form_tables, sql_table_loader, read_form_csv_tables]
   - title: Export
-    contents: [export_schema, read_form_export, prepare_form_export, run_form_export]
+    contents: [export_schema, read_form_export, prepare_form_export, run_form_export, export_status_constants]
   - title: Workbook operations
     contents: [split_form_workbook, write_form_workbook]
   - title: Package
