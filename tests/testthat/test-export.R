@@ -100,3 +100,29 @@ test_that("field warnings keep the value and allow a complete export to be writt
   expect_identical(invalid$diagnostics$status, "rule_error")
   expect_false(invalid$ready_to_write)
 })
+
+test_that("row warnings keep the selection and can report an empty selection", {
+  survey_model <- form.model::read_form_model(
+    system.file("examples", "survey", "form-source.yaml", package = "form.tools"))
+  survey_export <- read_form_export("examples/survey/export.yaml", "form.tools")
+  row_rules <- list(each = function(inputs, context, parameters) {
+    groups <- as.list(which(inputs$records$count > 0L))
+    list(status = EXPORT_RESULT_STATUS_WARNING, groups = groups,
+      message = "Some observations were skipped.", details = list(selected = length(groups)))
+  })
+  plan <- prepare_form_export(survey_model, survey_model, survey_export$source$root,
+    survey_export$sheets, row_rules, list(copy = function(inputs, context, parameters) inputs$value))
+  data <- list(surveys = data.frame(id = "S01"),
+    observations = data.frame(survey = c("S01", "S01"), count = c(0L, 3L)))
+
+  result <- run_form_export(plan, data)
+  expect_identical(result$tables$observations$count, 3L)
+  expect_identical(result$diagnostics$status, "warning")
+  expect_identical(result$diagnostics$details[[1L]], list(selected = 1L))
+
+  data$observations$count <- c(0L, 0L)
+  result <- run_form_export(plan, data)
+  expect_equal(nrow(result$tables$observations), 0L)
+  expect_identical(result$diagnostics$status, "warning")
+  expect_identical(result$diagnostics$details[[1L]], list(selected = 0L))
+})
