@@ -28,7 +28,9 @@ Use \code{sheets} from \code{\link[=read_form_export]{read_form_export()}} or su
 \item{row_rules}{Named list of row callbacks. Each receives a data frame
 as \code{inputs$records} and returns a list of integer vectors indexing
 that frame, one per target row. An empty list selects zero rows.
-Each vector can group several source rows.}
+Each vector can group several source rows. Return a list with \code{status = "warning"},
+\code{groups}, \code{message} and optional \code{details} to keep the selected groups and
+report a non-blocking diagnostic, even when no rows were selected.}
 
 \item{field_rules}{Named list of field callbacks. Each returns a typed scalar
 or a list with \code{status}, optional \code{value},

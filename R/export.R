@@ -14,7 +14,9 @@
 #' @param row_rules Named list of row callbacks. Each receives a data frame
 #'   as `inputs$records` and returns a list of integer vectors indexing
 #'   that frame, one per target row. An empty list selects zero rows.
-#'   Each vector can group several source rows.
+#'   Each vector can group several source rows. Return a list with `status = "warning"`,
+#'   `groups`, `message` and optional `details` to keep the selected groups and
+#'   report a non-blocking diagnostic, even when no rows were selected.
 #' @param field_rules Named list of field callbacks. Each returns a typed scalar
 #'   or a list with `status`, optional `value`,
 #'   `message` and `details`. Use `"resolved"` with a value or `"omitted"` for
@@ -524,6 +526,13 @@ evaluate_export_rows <- function(rule, source, root, inputs, context, layout) {
     records <- rule$inputs$records
     rows <- export_binding_rows(records, source, root)
     selected <- rule$callback(arguments, context, rule$parameters)
+    problem <- NULL
+    if (is.list(selected) && !is.data.frame(selected) &&
+        identical(selected[["status"]], EXPORT_RESULT_STATUS_WARNING)) {
+      require_nonempty_string(selected$message, "row result message")
+      problem <- export_problem(selected$status, selected$message, selected$details)
+      selected <- selected$groups
+    }
     if (!is.list(selected) || is.data.frame(selected))
       stop("Row rule must return a list of source row index vectors")
     if (layout == "cells" && length(selected) != 1L)
@@ -534,7 +543,7 @@ evaluate_export_rows <- function(rule, source, root, inputs, context, layout) {
         stop("Invalid source row indices returned by row rule")
       list(sheet = records$sheet, rows = rows[indices])
     })
-    list(groups = groups)
+    list(groups = groups, problem = problem)
   }, error = function(error) list(groups = list(),
     problem = export_problem(EXPORT_RESULT_STATUS_RULE_ERROR, conditionMessage(error))))
 }
