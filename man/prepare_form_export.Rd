@@ -33,7 +33,9 @@ Each vector can group several source rows.}
 \item{field_rules}{Named list of field callbacks. Each returns a typed scalar
 or a list with \code{status}, optional \code{value},
 \code{message} and \code{details}. Use \code{"resolved"} with a value or \code{"omitted"} for
-an intentional blank. Other statuses produce diagnostics.
+an intentional blank. Use \code{"warning"} with a value and a message to keep
+the value and record a non-blocking diagnostic. Other statuses produce
+diagnostics and leave the field blank.
 A missing value (\code{NULL} or scalar \code{NA}) leaves an optional field blank
 and produces a diagnostic for a mandatory field.}
 }
@@ -86,4 +88,7 @@ survey_source_tables <- list(surveys = data.frame(id = "S01"),
   observations = data.frame(survey = "S01", count = 3L))
 # Inspect the transformed table.
 run_form_export(survey_export_plan, survey_source_tables)$tables$observations
+}
+\seealso{
+\link{export_status_constants}
 }

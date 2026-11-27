@@ -18,7 +18,9 @@
 #' @param field_rules Named list of field callbacks. Each returns a typed scalar
 #'   or a list with `status`, optional `value`,
 #'   `message` and `details`. Use `"resolved"` with a value or `"omitted"` for
-#'   an intentional blank. Other statuses produce diagnostics.
+#'   an intentional blank. Use `"warning"` with a value and a message to keep
+#'   the value and record a non-blocking diagnostic. Other statuses produce
+#'   diagnostics and leave the field blank.
 #'   A missing value (`NULL` or scalar `NA`) leaves an optional field blank
 #'   and produces a diagnostic for a mandatory field.
 #' @return A prepared plan for [run_form_export()].
@@ -42,6 +44,7 @@
 #'   binding returns a data frame. An `input` binding reads an exact key in the
 #'   caller's input list. A binding with `model = "target"`, `sheet` and `field`
 #'   reads the target field definition.
+#' @seealso [export_status_constants]
 #' @examples
 #' # Load the SQL example's form model.
 #' survey_model <- form.model::read_form_model(
@@ -102,10 +105,10 @@ prepare_form_export <- function(source_model, target_model, root_sheet, sheets, 
     check_write_names(definition$fields, names(writable), paste(sheet_name, "fields"))
     rows <- prepare_export_rule(definition$rows, root_sheet, source, target, row_rules,
       paste(sheet_name, "rows"))
-    if (rows$status == "omitted" && target[[sheet_name]]$layout$kind == "cells")
+    if (rows$status == EXPORT_DECLARATION_STATUS_OMITTED && target[[sheet_name]]$layout$kind == "cells")
       stop(sheet_name, " cannot omit the row of a fixed-cell sheet", call. = FALSE)
     fields <- definition$fields[names(writable)]
-    if (rows$status == "specified") {
+    if (rows$status == EXPORT_DECLARATION_STATUS_SPECIFIED) {
       records <- rows$inputs[["records"]]
       if (is.null(records$sheet) || !is.null(records[["field"]]))
         stop(sheet_name, " rows must bind records to a source data frame", call. = FALSE)
@@ -136,7 +139,7 @@ prepare_form_export <- function(source_model, target_model, root_sheet, sheets, 
 #' @return A list containing `tables`, a `diagnostics` data frame, `source_rows`
 #'   mapping target rows to their source keys, `preserve_fields` for the writer,
 #'   and `ready_to_write`. The latter
-#'   is true when all target sheets ran without export diagnostics.
+#'   is true when all target sheets ran without blocking export diagnostics.
 #' @details Callbacks receive the target sheet, field and row in `context`,
 #'   together with `source_keys`, caller `resources` and completed
 #'   `target_tables`. Field callbacks can read earlier values of the current
@@ -203,9 +206,11 @@ run_form_export <- function(plan, data, inputs = list(), resources = list(), fin
   prototype <- data.frame(sheet = character(), field = character(), row = integer(),
     rule = character(), status = character(), message = character(),
     source_keys = I(list()), details = I(list()))
-  export_result <- list(tables = tables, diagnostics = do.call(rbind, c(list(prototype), diagnostics)),
+  diagnostics <- do.call(rbind, c(list(prototype), diagnostics))
+  export_result <- list(tables = tables, diagnostics = diagnostics,
     source_rows = lineage, preserve_fields = preserve_fields,
-    ready_to_write = length(tables) == length(plan$target) && !length(diagnostics))
+    ready_to_write = length(tables) == length(plan$target) &&
+      all(diagnostics$status == EXPORT_RESULT_STATUS_WARNING))
   if (is.null(finalize)) return(export_result)
   finalize(export_result, resources)
 }
@@ -240,8 +245,10 @@ evaluate_export_input_block <- function(declaration, inputs, context) {
     table[[name]] <- export_missing_value(field$type)
     if (missing && !isTRUE(field$mandatory)) next
     label <- paste0("inputs.", section, ".", name)
-    problem <- if (missing) export_problem("missing_value", paste(label, "is required")) else
-      export_problem("invalid_value", paste(label, "must contain one value of type", field$type))
+    problem <- if (missing)
+      export_problem(EXPORT_RESULT_STATUS_MISSING_VALUE, paste(label, "is required")) else
+      export_problem(EXPORT_RESULT_STATUS_INVALID_VALUE,
+        paste(label, "must contain one value of type", field$type))
     context$field <- name
     diagnostics[[length(diagnostics) + 1L]] <-
       export_diagnostic(context, list(rule = "fields_from"), problem)
@@ -268,8 +275,9 @@ export_mapping <- function(value, label) {
 #' @keywords internal
 apply_export_rule_defaults <- function(rule, field = NULL) {
   if (!"status" %in% names(rule) && (!is.null(field) || !is.null(rule[["rule"]])))
-    rule$status <- "specified"
-  if (!is.null(field) && identical(rule[["status"]], "specified") && !"rule" %in% names(rule))
+    rule$status <- EXPORT_DECLARATION_STATUS_SPECIFIED
+  if (!is.null(field) && identical(rule[["status"]], EXPORT_DECLARATION_STATUS_SPECIFIED) &&
+      !"rule" %in% names(rule))
     rule$rule <- field
   rule
 }
@@ -287,10 +295,10 @@ prepare_export_rule <- function(rule, anchor, source, target, rules, label, fiel
   export_mapping(rule, label)
   rule <- apply_export_rule_defaults(rule, field)
   require_nonempty_string(rule$status, paste(label, "status"))
-  if (!rule$status %in% c("specified", "pending", "unavailable", "omitted"))
+  if (!rule$status %in% EXPORT_DECLARATION_STATUSES)
     stop(label, ": unknown export status ", rule$status, call. = FALSE)
   if (!is.null(rule$note) && !identical(rule$note, "")) require_nonempty_string(rule$note, paste(label, "note"))
-  if (rule$status != "specified") return(rule)
+  if (rule$status != EXPORT_DECLARATION_STATUS_SPECIFIED) return(rule)
   require_nonempty_string(rule$rule, paste(label, "rule"))
   if (!rule$rule %in% names(rules)) {
     kind <- if (is.null(field)) "row" else "field"
@@ -506,8 +514,8 @@ export_inactive <- function(rule) {
 #' @return Selected source groups and any diagnostic.
 #' @keywords internal
 evaluate_export_rows <- function(rule, source, root, inputs, context, layout) {
-  if (rule$status == "omitted") return(list(groups = list()))
-  if (rule$status != "specified")
+  if (rule$status == EXPORT_DECLARATION_STATUS_OMITTED) return(list(groups = list()))
+  if (rule$status != EXPORT_DECLARATION_STATUS_SPECIFIED)
     return(list(groups = list(), problem = export_inactive(rule)))
   tryCatch({
     arguments <- resolve_export_inputs(rule$inputs, source, root, inputs)
@@ -526,7 +534,7 @@ evaluate_export_rows <- function(rule, source, root, inputs, context, layout) {
     })
     list(groups = groups)
   }, error = function(error) list(groups = list(),
-    problem = export_problem("rule_error", conditionMessage(error))))
+    problem = export_problem(EXPORT_RESULT_STATUS_RULE_ERROR, conditionMessage(error))))
 }
 
 #' Return a missing value of the declared target field type.
@@ -551,33 +559,35 @@ export_missing_value <- function(type) {
 evaluate_export_field <- function(rule, source, group, inputs, context, field) {
   type <- field$type
   missing <- export_missing_value(type)
-  if (rule$status == "omitted") return(list(value = missing))
-  if (rule$status != "specified")
+  if (rule$status == EXPORT_DECLARATION_STATUS_OMITTED) return(list(value = missing))
+  if (rule$status != EXPORT_DECLARATION_STATUS_SPECIFIED)
     return(list(value = missing, problem = export_inactive(rule)))
   tryCatch({
     arguments <- resolve_export_inputs(rule$inputs, source, group, inputs)
     result <- rule$callback(arguments, context, rule$parameters)
+    problem <- NULL
     if (is.list(result)) {
       require_nonempty_string(result$status, "field result status")
-      if (result$status == "omitted") return(list(value = missing))
-      if (result$status != "resolved") {
+      if (result$status == EXPORT_RESULT_STATUS_OMITTED) return(list(value = missing))
+      if (result$status != EXPORT_RESULT_STATUS_RESOLVED) {
         message <- if (is.null(result$message)) "" else result$message
         if (!identical(message, "")) require_nonempty_string(message, "field result message")
-        return(list(value = missing, problem = export_problem(result$status, message, result$details)))
+        problem <- export_problem(result$status, message, result$details)
+        if (result$status != EXPORT_RESULT_STATUS_WARNING) return(list(value = missing, problem = problem))
       }
       result <- result$value
     }
-    if (is.null(result) || (is.atomic(result) && length(result) == 1L &&
-        is.na(result) && !(is.numeric(result) && is.nan(result)))) {
+    if (is.null(problem) && (is.null(result) || (is.atomic(result) && length(result) == 1L &&
+        is.na(result) && !(is.numeric(result) && is.nan(result))))) {
       problem <- if (isTRUE(field$mandatory))
-        export_problem("missing_value", "Rule returned no value")
+        export_problem(EXPORT_RESULT_STATUS_MISSING_VALUE, "Rule returned no value")
       return(list(value = missing, problem = problem))
     }
     if (!export_scalar(result, type))
       stop("Field rule must return one value of type ", type)
-    list(value = result)
+    list(value = result, problem = problem)
   }, error = function(error) list(value = missing,
-    problem = export_problem("rule_error", conditionMessage(error))))
+    problem = export_problem(EXPORT_RESULT_STATUS_RULE_ERROR, conditionMessage(error))))
 }
 
 #' Check whether one value fits the target field's R representation.

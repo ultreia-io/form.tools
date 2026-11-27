@@ -34,7 +34,7 @@ and \code{resources}. Return the result to deliver to the caller.}
 A list containing \code{tables}, a \code{diagnostics} data frame, \code{source_rows}
 mapping target rows to their source keys, \code{preserve_fields} for the writer,
 and \code{ready_to_write}. The latter
-is true when all target sheets ran without export diagnostics.
+is true when all target sheets ran without blocking export diagnostics.
 }
 \description{
 Transform one extracted dataset into target form tables

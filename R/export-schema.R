@@ -256,9 +256,9 @@ check_export_declaration <- function(rule, resource, path, field = NULL) {
   rule <- apply_export_rule_defaults(rule, field)
   if (is.null(rule$status))
     abort_export_yaml(resource, paste0(path, ".status"), "required when no rule is named")
-  if (rule$status == "specified" && is.null(rule$rule))
+  if (rule$status == EXPORT_DECLARATION_STATUS_SPECIFIED && is.null(rule$rule))
     abort_export_yaml(resource, paste0(path, ".rule"), "specified declarations require a rule")
-  if (is.null(field) && rule$status == "specified") {
+  if (is.null(field) && rule$status == EXPORT_DECLARATION_STATUS_SPECIFIED) {
     records <- rule$inputs[["records"]]
     if (is.null(records$sheet) || !is.null(records$model) || !is.null(records[["field"]]))
       abort_export_yaml(resource, paste0(path, ".inputs.records"), "expected a source data frame binding")
