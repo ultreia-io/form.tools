@@ -4,7 +4,14 @@
 \alias{prepare_form_export}
 \title{Prepare a model-driven export plan}
 \usage{
-prepare_form_export(source_model, target_model, root_sheet, sheets, rules)
+prepare_form_export(
+  source_model,
+  target_model,
+  root_sheet,
+  sheets,
+  row_rules,
+  field_rules
+)
 }
 \arguments{
 \item{source_model, target_model}{Checked form models from form.model.}
@@ -18,11 +25,13 @@ block from a named caller input section. Use \code{preserve_fields} to keep
 named template cells.
 Use \code{sheets} from \code{\link[=read_form_export]{read_form_export()}} or supply a subset of target sheets.}
 
-\item{rules}{Named list of R functions called with \code{inputs}, \code{context} and
-\code{parameters}. Row rules receive a data frame as \code{inputs$records}. They
-return a list of integer vectors indexing that frame, one per target row.
-An empty list selects zero rows. Each vector can group several source rows.
-Field rules return a typed scalar or a list with \code{status}, optional \code{value},
+\item{row_rules}{Named list of row callbacks. Each receives a data frame
+as \code{inputs$records} and returns a list of integer vectors indexing
+that frame, one per target row. An empty list selects zero rows.
+Each vector can group several source rows.}
+
+\item{field_rules}{Named list of field callbacks. Each returns a typed scalar
+or a list with \code{status}, optional \code{value},
 \code{message} and \code{details}. Use \code{"resolved"} with a value or \code{"omitted"} for
 an intentional blank. Other statuses produce diagnostics.}
 }
@@ -33,6 +42,8 @@ A prepared plan for \code{\link[=run_form_export]{run_form_export()}}.
 Bind table and field declarations to supplied R callbacks before processing data.
 }
 \details{
+Both callback types receive \code{inputs}, \code{context} and \code{parameters}.
+Row declarations use \code{row_rules}, and field declarations use \code{field_rules}.
 Field declarations default to \code{"specified"} and use the exact
 target field name as the callback name when \code{rule} is absent. A named
 \code{rule} overrides that default. Active rules may supply named \code{inputs}
@@ -56,15 +67,18 @@ reads the target field definition.
 # Load the SQL example's form model.
 survey_model <- form.model::read_form_model(
   system.file("examples", "survey", "form-source.yaml", package = "form.tools"))
-# Register one callback for row selection and one for copying a value.
-export_rules <- list(
-  each = function(inputs, context, parameters) as.list(seq_len(nrow(inputs$records))),
+# Register the callback that selects the observation rows.
+survey_row_rules <- list(
+  each = function(inputs, context, parameters) as.list(seq_len(nrow(inputs$records))))
+# Register the callback that copies a field value.
+survey_field_rules <- list(
   copy = function(inputs, context, parameters) inputs$value)
 # Read the row and field declarations for the observation sheet.
 survey_export <- read_form_export("examples/survey/export.yaml", "form.tools")
 # Prepare the observation sheet as a preview of the target form.
 survey_export_plan <- prepare_form_export(survey_model, survey_model,
-  survey_export$source$root, survey_export$sheets, export_rules)
+  survey_export$source$root, survey_export$sheets,
+  row_rules = survey_row_rules, field_rules = survey_field_rules)
 # Supply the extracted tables for one survey.
 survey_source_tables <- list(surveys = data.frame(id = "S01"),
   observations = data.frame(survey = "S01", count = 3L))

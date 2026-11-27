@@ -22,14 +22,14 @@ export_schema <- function(version = "1.0.0") {
 #'   Invalid YAML or definitions raise `form_export_error` with the resource
 #'   and the path to the offending entry.
 #' @details The configuration selects its schema using `schema_version`.
-#'   The caller supplies the source and target models and the rule callbacks to
+#'   The caller supplies the source and target models and the separate row and field callbacks to
 #'   [prepare_form_export()]. Supply the source root and sheets from this list.
 #'   A fixed-cell sheet may use `fields_from` in place of `rows` and `fields`
 #'   to name the caller input section for all writable fields.
 #'   Field declarations default to `status: specified`. An active field
 #'   declaration without `rule` uses its field name. Active row declarations
 #'   name their rule explicitly. [prepare_form_export()] checks that each
-#'   active rule has a registered callback.
+#'   active rule has a callback in the corresponding list.
 #'   A field rule's source input can omit `sheet` to use the row source sheet
 #'   at `rows.inputs.records.sheet`.
 #'   Uses YAML 1.1 types. Quote version strings and identifiers that could be

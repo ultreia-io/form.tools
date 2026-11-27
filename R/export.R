@@ -11,15 +11,18 @@
 #'   block from a named caller input section. Use `preserve_fields` to keep
 #'   named template cells.
 #'   Use `sheets` from [read_form_export()] or supply a subset of target sheets.
-#' @param rules Named list of R functions called with `inputs`, `context` and
-#'   `parameters`. Row rules receive a data frame as `inputs$records`. They
-#'   return a list of integer vectors indexing that frame, one per target row.
-#'   An empty list selects zero rows. Each vector can group several source rows.
-#'   Field rules return a typed scalar or a list with `status`, optional `value`,
+#' @param row_rules Named list of row callbacks. Each receives a data frame
+#'   as `inputs$records` and returns a list of integer vectors indexing
+#'   that frame, one per target row. An empty list selects zero rows.
+#'   Each vector can group several source rows.
+#' @param field_rules Named list of field callbacks. Each returns a typed scalar
+#'   or a list with `status`, optional `value`,
 #'   `message` and `details`. Use `"resolved"` with a value or `"omitted"` for
 #'   an intentional blank. Other statuses produce diagnostics.
 #' @return A prepared plan for [run_form_export()].
-#' @details Field declarations default to `"specified"` and use the exact
+#' @details Both callback types receive `inputs`, `context` and `parameters`.
+#'   Row declarations use `row_rules`, and field declarations use `field_rules`.
+#'   Field declarations default to `"specified"` and use the exact
 #'   target field name as the callback name when `rule` is absent. A named
 #'   `rule` overrides that default. Active rules may supply named `inputs`
 #'   and `parameters`. An active row declaration must name its rule and
@@ -41,22 +44,25 @@
 #' # Load the SQL example's form model.
 #' survey_model <- form.model::read_form_model(
 #'   system.file("examples", "survey", "form-source.yaml", package = "form.tools"))
-#' # Register one callback for row selection and one for copying a value.
-#' export_rules <- list(
-#'   each = function(inputs, context, parameters) as.list(seq_len(nrow(inputs$records))),
+#' # Register the callback that selects the observation rows.
+#' survey_row_rules <- list(
+#'   each = function(inputs, context, parameters) as.list(seq_len(nrow(inputs$records))))
+#' # Register the callback that copies a field value.
+#' survey_field_rules <- list(
 #'   copy = function(inputs, context, parameters) inputs$value)
 #' # Read the row and field declarations for the observation sheet.
 #' survey_export <- read_form_export("examples/survey/export.yaml", "form.tools")
 #' # Prepare the observation sheet as a preview of the target form.
 #' survey_export_plan <- prepare_form_export(survey_model, survey_model,
-#'   survey_export$source$root, survey_export$sheets, export_rules)
+#'   survey_export$source$root, survey_export$sheets,
+#'   row_rules = survey_row_rules, field_rules = survey_field_rules)
 #' # Supply the extracted tables for one survey.
 #' survey_source_tables <- list(surveys = data.frame(id = "S01"),
 #'   observations = data.frame(survey = "S01", count = 3L))
 #' # Inspect the transformed table.
 #' run_form_export(survey_export_plan, survey_source_tables)$tables$observations
 #' @export
-prepare_form_export <- function(source_model, target_model, root_sheet, sheets, rules) {
+prepare_form_export <- function(source_model, target_model, root_sheet, sheets, row_rules, field_rules) {
   source <- form.model::form_sheets(form.model::as_form_model(form.model::form_definition(source_model)))
   target <- form.model::form_sheets(form.model::as_form_model(form.model::form_definition(target_model)))
   require_nonempty_string(root_sheet, "root_sheet")
@@ -64,11 +70,15 @@ prepare_form_export <- function(source_model, target_model, root_sheet, sheets, 
       is.null(source[[root_sheet]]$primary_key) || !is.null(source[[root_sheet]]$parent_key))
     stop("root_sheet must be a source table with a primary key and no parent", call. = FALSE)
   export_mapping(sheets, "sheets")
-  export_mapping(rules, "rules")
   if (!length(sheets) || !all(names(sheets) %in% names(target)))
     stop("sheets must name at least one known target sheet", call. = FALSE)
-  if (!all(vapply(rules, is.function, logical(1))))
-    stop("rules must contain functions", call. = FALSE)
+  rule_lists <- list(row_rules = row_rules, field_rules = field_rules)
+  for (name in names(rule_lists)) {
+    callbacks <- rule_lists[[name]]
+    export_mapping(callbacks, name)
+    if (!all(vapply(callbacks, is.function, logical(1))))
+      stop(name, " must contain functions", call. = FALSE)
+  }
 
   # The form model orders parents before children.
   declarations <- lapply(intersect(names(target), names(sheets)), function(sheet_name) {
@@ -88,7 +98,7 @@ prepare_form_export <- function(source_model, target_model, root_sheet, sheets, 
         preserve_fields = preserve_fields))
     }
     check_write_names(definition$fields, names(writable), paste(sheet_name, "fields"))
-    rows <- prepare_export_rule(definition$rows, root_sheet, source, target, rules,
+    rows <- prepare_export_rule(definition$rows, root_sheet, source, target, row_rules,
       paste(sheet_name, "rows"))
     if (rows$status == "omitted" && target[[sheet_name]]$layout$kind == "cells")
       stop(sheet_name, " cannot omit the row of a fixed-cell sheet", call. = FALSE)
@@ -98,7 +108,7 @@ prepare_form_export <- function(source_model, target_model, root_sheet, sheets, 
       if (is.null(records$sheet) || !is.null(records[["field"]]))
         stop(sheet_name, " rows must bind records to a source data frame", call. = FALSE)
       for (name in names(fields))
-        fields[[name]] <- prepare_export_rule(fields[[name]], records$sheet, source, target, rules,
+        fields[[name]] <- prepare_export_rule(fields[[name]], records$sheet, source, target, field_rules,
           paste(sheet_name, name, sep = "."), field = name)
     }
     list(name = sheet_name, rows = rows, fields = fields, preserve_fields = preserve_fields)
@@ -280,8 +290,10 @@ prepare_export_rule <- function(rule, anchor, source, target, rules, label, fiel
   if (!is.null(rule$note) && !identical(rule$note, "")) require_nonempty_string(rule$note, paste(label, "note"))
   if (rule$status != "specified") return(rule)
   require_nonempty_string(rule$rule, paste(label, "rule"))
-  if (!rule$rule %in% names(rules))
-    stop(label, ": no registered rule ", rule$rule, call. = FALSE)
+  if (!rule$rule %in% names(rules)) {
+    kind <- if (is.null(field)) "row" else "field"
+    stop(label, ": no registered ", kind, " rule ", rule$rule, call. = FALSE)
+  }
   rule$callback <- rules[[rule$rule]]
   if (is.null(rule$inputs)) rule$inputs <- list()
   if (is.null(rule$parameters)) rule$parameters <- list()
