@@ -83,7 +83,8 @@ See [form.model][form-model-schema] for the form model schema.
 
 `read_form_export()` checks the survey's `export.yaml` against the schema selected by its `schema_version`.
 
-`export_schema()` exposes that contract. `prepare_form_export()` checks the plan against the models and callbacks.
+`export_schema()` exposes that contract. `prepare_form_export()` checks the plan against the models
+and resolves each callback from `row_rules` or `field_rules`.
 
 An unspecified field status defaults to `specified`. An active field uses its exact name as the callback
 name when `rule` is absent. Row declarations name their callback explicitly.
