@@ -33,7 +33,9 @@ Each vector can group several source rows.}
 \item{field_rules}{Named list of field callbacks. Each returns a typed scalar
 or a list with \code{status}, optional \code{value},
 \code{message} and \code{details}. Use \code{"resolved"} with a value or \code{"omitted"} for
-an intentional blank. Other statuses produce diagnostics.}
+an intentional blank. Other statuses produce diagnostics.
+A missing value (\code{NULL} or scalar \code{NA}) leaves an optional field blank
+and produces a diagnostic for a mandatory field.}
 }
 \value{
 A prepared plan for \code{\link[=run_form_export]{run_form_export()}}.

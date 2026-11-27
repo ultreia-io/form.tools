@@ -19,6 +19,8 @@
 #'   or a list with `status`, optional `value`,
 #'   `message` and `details`. Use `"resolved"` with a value or `"omitted"` for
 #'   an intentional blank. Other statuses produce diagnostics.
+#'   A missing value (`NULL` or scalar `NA`) leaves an optional field blank
+#'   and produces a diagnostic for a mandatory field.
 #' @return A prepared plan for [run_form_export()].
 #' @details Both callback types receive `inputs`, `context` and `parameters`.
 #'   Row declarations use `row_rules`, and field declarations use `field_rules`.
@@ -187,7 +189,7 @@ run_form_export <- function(plan, data, inputs = list(), resources = list(), fin
       for (name in names(fields)) {
         rule <- declaration$fields[[name]]
         context$field <- name
-        result <- evaluate_export_field(rule, source, groups[[row]], inputs, context, fields[[name]]$type)
+        result <- evaluate_export_field(rule, source, groups[[row]], inputs, context, fields[[name]])
         if (!is.null(result$problem))
           diagnostics[[length(diagnostics) + 1L]] <- export_diagnostic(context, rule, result$problem)
         columns[[name]][row] <- result$value
@@ -543,10 +545,11 @@ export_missing_value <- function(type) {
 #' @param group Source sheet and row indices for this target row.
 #' @param inputs Named caller inputs.
 #' @param context Callback context for the target field.
-#' @param type Target form model field type.
+#' @param field Target form model field definition.
 #' @return Typed value and any diagnostic.
 #' @keywords internal
-evaluate_export_field <- function(rule, source, group, inputs, context, type) {
+evaluate_export_field <- function(rule, source, group, inputs, context, field) {
+  type <- field$type
   missing <- export_missing_value(type)
   if (rule$status == "omitted") return(list(value = missing))
   if (rule$status != "specified")
@@ -565,8 +568,11 @@ evaluate_export_field <- function(rule, source, group, inputs, context, type) {
       result <- result$value
     }
     if (is.null(result) || (is.atomic(result) && length(result) == 1L &&
-        is.na(result) && !(is.numeric(result) && is.nan(result))))
-      return(list(value = missing, problem = export_problem("missing_value", "Rule returned no value")))
+        is.na(result) && !(is.numeric(result) && is.nan(result)))) {
+      problem <- if (isTRUE(field$mandatory))
+        export_problem("missing_value", "Rule returned no value")
+      return(list(value = missing, problem = problem))
+    }
     if (!export_scalar(result, type))
       stop("Field rule must return one value of type ", type)
     list(value = result)

@@ -4,7 +4,7 @@
 \alias{evaluate_export_field}
 \title{Run one field rule and collect any unresolved result.}
 \usage{
-evaluate_export_field(rule, source, group, inputs, context, type)
+evaluate_export_field(rule, source, group, inputs, context, field)
 }
 \arguments{
 \item{rule}{Prepared field rule.}
@@ -17,7 +17,7 @@ evaluate_export_field(rule, source, group, inputs, context, type)
 
 \item{context}{Callback context for the target field.}
 
-\item{type}{Target form model field type.}
+\item{field}{Target form model field definition.}
 }
 \value{
 Typed value and any diagnostic.
