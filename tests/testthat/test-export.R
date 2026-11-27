@@ -66,3 +66,37 @@ test_that("missing field results follow requiredness in the target model", {
   expect_identical(unresolved$tables$observations$count, NA_integer_)
   expect_identical(unresolved$diagnostics$status, "unresolved")
 })
+
+test_that("field warnings keep the value and allow a complete export to be written", {
+  survey_model <- form.model::read_form_model(
+    system.file("examples", "survey", "form-source.yaml", package = "form.tools"))
+  survey_export <- read_form_export("examples/survey/export.yaml", "form.tools")
+  survey_export$sheets$surveys <- list(
+    rows = list(rule = "each", inputs = list(records = list(sheet = "surveys"))),
+    fields = list(id = list(rule = "copy", inputs = list(value = list(field = "id"))))
+  )
+  survey_export$sheets$observations$fields$count$rule <- "read_count"
+  plan <- prepare_form_export(survey_model, survey_model, survey_export$source$root,
+    survey_export$sheets,
+    row_rules = list(each = function(inputs, context, parameters) as.list(seq_len(nrow(inputs$records)))),
+    field_rules = list(
+      copy = function(inputs, context, parameters) inputs$value,
+      read_count = function(inputs, context, parameters) {
+        list(status = "warning", value = inputs$value, message = "Review the count.",
+          details = list(omitted = 1L))
+      }
+    )
+  )
+  source_tables <- list(surveys = data.frame(id = "S01"),
+    observations = data.frame(survey = "S01", count = 3L))
+  result <- run_form_export(plan, source_tables)
+  expect_identical(result$tables$observations$count, 3L)
+  expect_identical(result$diagnostics$status, "warning")
+  expect_identical(result$diagnostics$details[[1L]], list(omitted = 1L))
+  expect_true(result$ready_to_write)
+
+  source_tables$observations$count <- NA_integer_
+  invalid <- run_form_export(plan, source_tables)
+  expect_identical(invalid$diagnostics$status, "rule_error")
+  expect_false(invalid$ready_to_write)
+})
