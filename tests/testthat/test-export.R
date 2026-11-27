@@ -25,3 +25,44 @@ test_that("export plans resolve row and field callbacks separately", {
     "observations.survey: no registered field rule copy", fixed = TRUE
   )
 })
+
+test_that("missing field results follow requiredness in the target model", {
+  source_model <- form.model::read_form_model(
+    system.file("examples", "survey", "form-source.yaml", package = "form.tools"))
+  required_definition <- form.model::form_definition(source_model)
+  required_definition$sheets$observations$fields$count$mandatory <- TRUE
+  required_model <- form.model::as_form_model(required_definition)
+  survey_export <- read_form_export("examples/survey/export.yaml", "form.tools")
+  survey_export$sheets$observations$fields$count$rule <- "read_count"
+  row_rules <- list(each = function(inputs, context, parameters) {
+    as.list(seq_len(nrow(inputs$records)))
+  })
+  source_tables <- list(
+    surveys = data.frame(id = "S01"),
+    observations = data.frame(survey = "S01", count = NA_integer_)
+  )
+  export_count <- function(target_model, callback) {
+    field_rules <- list(copy = function(inputs, context, parameters) inputs$value, read_count = callback)
+    plan <- prepare_form_export(source_model, target_model, survey_export$source$root,
+      survey_export$sheets, row_rules = row_rules, field_rules = field_rules)
+    run_form_export(plan, source_tables)
+  }
+
+  for (callback in list(function(inputs, context, parameters) inputs$value,
+                        function(inputs, context, parameters) NULL)) {
+    optional <- export_count(source_model, callback)
+    expect_identical(optional$tables$observations$count, NA_integer_)
+    expect_equal(nrow(optional$diagnostics), 0L)
+
+    required <- export_count(required_model, callback)
+    expect_identical(required$tables$observations$count, NA_integer_)
+    expect_identical(required$diagnostics$field, "count")
+    expect_identical(required$diagnostics$status, "missing_value")
+  }
+
+  unresolved <- export_count(source_model, function(inputs, context, parameters) {
+    list(status = "unresolved", message = "Review the source value.")
+  })
+  expect_identical(unresolved$tables$observations$count, NA_integer_)
+  expect_identical(unresolved$diagnostics$status, "unresolved")
+})
