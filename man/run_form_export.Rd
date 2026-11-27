@@ -44,8 +44,10 @@ Callbacks receive the target sheet, field and row in \code{context},
 together with \code{source_keys}, caller \code{resources} and completed
 \code{target_tables}. Field callbacks can read earlier values of the current
 row in \code{context$target_row}. Fields run in target form model order.
-An empty \code{identity_cache} environment is shared by
-callbacks within each run. Row callbacks receive the same context with no
+Callbacks share an empty \code{identity_cache} environment at the start of each run.
+Use \code{\link[=export_identity_cache_write]{export_identity_cache_write()}} and \code{\link[=export_identity_cache_read]{export_identity_cache_read()}} to
+reuse identifiers.
+Row callbacks receive the same context with no
 field or target row yet. Callbacks may return an unresolved status with details such
 as lookup candidates. A failed field is represented by a typed missing
 value. The result can be inspected before calling \code{\link[=write_form_workbook]{write_form_workbook()}}.

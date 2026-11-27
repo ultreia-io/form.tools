@@ -144,8 +144,10 @@ prepare_form_export <- function(source_model, target_model, root_sheet, sheets, 
 #'   together with `source_keys`, caller `resources` and completed
 #'   `target_tables`. Field callbacks can read earlier values of the current
 #'   row in `context$target_row`. Fields run in target form model order.
-#'   An empty `identity_cache` environment is shared by
-#'   callbacks within each run. Row callbacks receive the same context with no
+#'   Callbacks share an empty `identity_cache` environment at the start of each run.
+#'   Use [export_identity_cache_write()] and [export_identity_cache_read()] to
+#'   reuse identifiers.
+#'   Row callbacks receive the same context with no
 #'   field or target row yet. Callbacks may return an unresolved status with details such
 #'   as lookup candidates. A failed field is represented by a typed missing
 #'   value. The result can be inspected before calling [write_form_workbook()].
